@@ -1,0 +1,20 @@
+{
+  "name": "ticket-masters",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.15.1",
+  "scripts": {
+    "dev": "pnpm --filter @ticket-hub/contracts build && pnpm --parallel --filter @ticket-hub/web --filter @ticket-hub/api dev",
+    "dev:full": "pnpm --filter @ticket-hub/contracts build && QUEUE_DRIVER=redis pnpm --parallel --filter @ticket-hub/web --filter @ticket-hub/api --filter @ticket-hub/worker dev",
+    "dev:web": "pnpm --filter @ticket-hub/contracts build && pnpm --filter @ticket-hub/web dev",
+    "dev:api": "pnpm --filter @ticket-hub/contracts build && pnpm --filter @ticket-hub/api dev",
+    "dev:worker": "pnpm --filter @ticket-hub/contracts build && pnpm --filter @ticket-hub/worker dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm --filter @ticket-hub/contracts build && pnpm -r typecheck",
+    "lint": "pnpm --filter @ticket-hub/contracts build && pnpm -r lint",
+    "test": "pnpm --filter @ticket-hub/contracts build && pnpm -r test"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}
