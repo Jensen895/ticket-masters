@@ -4,7 +4,7 @@ import swaggerUi from "@fastify/swagger-ui";
 import Fastify from "fastify";
 import type { ApiConfig } from "./config.js";
 import { BullMqRefreshQueue, InMemoryRefreshQueue, type RefreshQueue } from "./queues/refresh-queue.js";
-import { DemoEventRepository, type EventRepository } from "./repositories/event-repository.js";
+import { EmptyEventRepository, type EventRepository } from "./repositories/event-repository.js";
 import { eventRoutes } from "./routes/events.js";
 
 export interface AppDependencies {
@@ -14,7 +14,7 @@ export interface AppDependencies {
 
 export async function createApp(config: ApiConfig, dependencies: AppDependencies = {}) {
   const app = Fastify({ logger: true, requestIdHeader: "x-request-id" });
-  const repository = dependencies.repository ?? new DemoEventRepository();
+  const repository = dependencies.repository ?? new EmptyEventRepository();
   const refreshQueue = dependencies.refreshQueue
     ?? (config.queueDriver === "redis" ? new BullMqRefreshQueue(config.redisUrl) : new InMemoryRefreshQueue());
 

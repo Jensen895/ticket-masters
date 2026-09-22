@@ -1,5 +1,4 @@
 import type { EventDetail, EventSummary, PriceSnapshot } from "@ticket-hub/contracts";
-import { demoEvents, findDemoEvent } from "@ticket-hub/contracts/demo";
 
 export interface EventQuery {
   query?: string;
@@ -15,24 +14,20 @@ export interface EventRepository {
 }
 
 /**
- * Development adapter. Replace with PostgresEventRepository and
- * RedisSnapshotRepository without changing routes or domain contracts.
+ * Empty development adapter. Events are no longer pre-populated with fixture
+ * data; the web app maintains each user's explicitly added Ticketmaster events.
+ * Replace this with a user-scoped persistent repository when identity is added.
  */
-export class DemoEventRepository implements EventRepository {
-  async search(input: EventQuery): Promise<EventSummary[]> {
-    const query = input.query?.trim().toLowerCase();
-    return demoEvents
-      .filter((event) => !query || `${event.name} ${event.venue.name} ${event.venue.city}`.toLowerCase().includes(query))
-      .filter((event) => !input.category || event.category.toLowerCase() === input.category.toLowerCase())
-      .filter((event) => !input.city || event.venue.city.toLowerCase() === input.city.toLowerCase())
-      .slice(0, input.limit);
+export class EmptyEventRepository implements EventRepository {
+  async search(_input: EventQuery): Promise<EventSummary[]> {
+    return [];
   }
 
-  async findByIdOrSlug(value: string): Promise<EventDetail | undefined> {
-    return findDemoEvent(value);
+  async findByIdOrSlug(_value: string): Promise<EventDetail | undefined> {
+    return undefined;
   }
 
-  async getLatestSnapshot(eventId: string): Promise<PriceSnapshot | undefined> {
-    return findDemoEvent(eventId)?.snapshot;
+  async getLatestSnapshot(_eventId: string): Promise<PriceSnapshot | undefined> {
+    return undefined;
   }
 }

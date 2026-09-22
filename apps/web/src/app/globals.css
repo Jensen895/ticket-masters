@@ -307,3 +307,360 @@ button { color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* User-curated Ticketmaster experience */
+.headerSearchAction {
+  margin-left: auto;
+  min-height: 40px;
+  padding: 0 15px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 8px;
+  color: #fff;
+  background: var(--blue);
+  font-size: 13px;
+  font-weight: 750;
+}
+.headerSearchAction:hover { background: var(--blue-dark); }
+.heroSearch > button:disabled { cursor: wait; opacity: .72; }
+.searchResultsSection { padding-block: 52px 58px; scroll-margin-top: 20px; }
+.searchResultsSection + .categoryBar { border-top: 1px solid var(--line); }
+.searchResultGrid { display: grid; gap: 12px; }
+.searchResultCard {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr) 135px;
+  align-items: center;
+  gap: 20px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 3px 12px rgba(12, 29, 61, .04);
+}
+.searchResultImage {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  background-position: center;
+  background-size: cover;
+}
+.eventImageFallback {
+  background-color: #dce9f7;
+  background-image:
+    radial-gradient(circle at 72% 24%, rgba(8, 119, 232, .52), transparent 28%),
+    linear-gradient(135deg, #071b41, #1767bd) !important;
+}
+.searchResultBody { min-width: 0; }
+.searchResultBody h3 { margin: 8px 0 9px; overflow: hidden; text-overflow: ellipsis; font-size: 17px; letter-spacing: -.2px; }
+.searchResultBody p { margin: 5px 0; display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
+.searchResultBody p svg { flex: none; color: var(--blue); }
+.classificationPill {
+  display: inline-flex;
+  max-width: 100%;
+  padding: 4px 7px;
+  border-radius: 4px;
+  overflow: hidden;
+  color: #0862bb;
+  background: #eaf4ff;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.searchResultAction { display: grid; justify-items: stretch; gap: 8px; text-align: center; }
+.searchResultAction button {
+  height: 39px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 7px;
+  color: white;
+  background: var(--blue);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+.searchResultAction button:hover:not(:disabled) { background: var(--blue-dark); }
+.searchResultAction button.added { color: #0b7651; background: #e3f6ef; cursor: default; }
+.searchResultAction a { color: var(--blue); font-size: 11px; font-weight: 750; }
+.inlineError {
+  padding: 20px;
+  display: grid;
+  gap: 5px;
+  border: 1px solid #efc5cb;
+  border-radius: 10px;
+  color: #8e2434;
+  background: #fff6f7;
+  font-size: 13px;
+}
+.loadMoreButton {
+  min-width: 170px;
+  height: 42px;
+  margin: 24px auto 0;
+  padding: 0 18px;
+  display: block;
+  border: 1px solid #9cc9f4;
+  border-radius: 8px;
+  color: var(--blue);
+  background: #f3f8ff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+.loadMoreButton:hover { background: #e8f3ff; }
+.compactEmpty { padding-block: 42px; }
+.eventGroups { display: grid; gap: 49px; }
+.eventGroup > h3 {
+  margin: 0 0 17px;
+  padding-bottom: 11px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border-bottom: 1px solid var(--line);
+  color: var(--navy);
+  font-size: 19px;
+}
+.eventGroup > h3 span {
+  min-width: 23px;
+  height: 23px;
+  padding-inline: 6px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 20px;
+  color: var(--blue);
+  background: #eaf4ff;
+  font-size: 10px;
+}
+.removeEventButton { transition: color .15s, background .15s; }
+.removeEventButton:hover { color: #d52e4e; background: #fff0f3; }
+.eventCardAction { margin: 11px 0 0; color: var(--blue); font-size: 11px; font-weight: 750; }
+.loadingState { min-height: 210px; align-content: center; }
+.simplifiedFooter { grid-template-columns: 2fr 1fr 1fr; }
+
+/* Ticketmaster event details and interactive seating */
+.breadcrumbs a { display: inline-flex; align-items: center; gap: 5px; }
+.eventPoster { background-color: #17305f; }
+.eventWarning, .eventRefreshing {
+  min-height: 39px;
+  padding: 10px 24px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 7px;
+  border-bottom: 1px solid #ecdca7;
+  color: #695b30;
+  background: #fff6d8;
+  font-size: 11px;
+}
+.eventRefreshing { color: #315d86; border-color: #c6def4; background: #edf7ff; }
+.detailContent {
+  padding-block: 42px 70px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(320px, .75fr);
+  gap: 28px;
+  align-items: start;
+}
+.seatMapSection, .eventInfoPanel {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: white;
+  box-shadow: 0 7px 24px rgba(12, 29, 61, .06);
+}
+.seatMapSection { overflow: hidden; }
+.detailSectionHeading {
+  min-height: 82px;
+  padding: 19px 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line);
+}
+.detailSectionHeading .sectionKicker, .eventInfoHeading .sectionKicker { margin-bottom: 6px; }
+.detailSectionHeading h2, .eventInfoHeading h2 { margin: 0; color: var(--navy); font-size: 22px; letter-spacing: -.5px; }
+.mapSource { color: var(--muted); font-size: 10px; }
+.seatMapViewer { position: relative; }
+.seatMapControls {
+  position: absolute;
+  z-index: 5;
+  top: 16px;
+  left: 16px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid #cad4df;
+  border-radius: 8px;
+  background: white;
+  box-shadow: 0 5px 16px rgba(18, 38, 68, .13);
+}
+.seatMapControls button {
+  width: 39px;
+  height: 39px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-right: 1px solid var(--line);
+  color: var(--navy);
+  background: white;
+  cursor: pointer;
+}
+.seatMapControls button:last-child { border: 0; border-left: 1px solid var(--line); }
+.seatMapControls button:hover:not(:disabled) { color: var(--blue); background: #edf6ff; }
+.seatMapControls button:disabled { color: #b9c2ce; cursor: default; }
+.seatMapControls span { min-width: 52px; color: var(--muted); text-align: center; font-size: 10px; font-weight: 750; }
+.seatMapCanvas {
+  height: 570px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  outline: none;
+  touch-action: none;
+  user-select: none;
+  background-color: #edf1f5;
+  background-image: radial-gradient(#cbd3dc .8px, transparent .8px);
+  background-size: 15px 15px;
+}
+.seatMapCanvas:focus-visible { box-shadow: inset 0 0 0 3px var(--blue); }
+.seatMapCanvas.canPan { cursor: grab; }
+.seatMapCanvas.canPan:active { cursor: grabbing; }
+.seatMapCanvas img {
+  display: block;
+  width: min(92%, 820px);
+  height: min(92%, 520px);
+  object-fit: contain;
+  pointer-events: none;
+  filter: drop-shadow(0 10px 18px rgba(36, 55, 77, .12));
+  transition: transform .08s ease-out;
+  will-change: transform;
+}
+.seatMapUnavailable { max-width: 390px; padding: 35px; text-align: center; color: var(--muted); }
+.seatMapUnavailable > svg { color: #8ca2b9; }
+.seatMapUnavailable h3 { margin: 12px 0 6px; color: var(--ink); }
+.seatMapUnavailable p { margin: 0 0 15px; font-size: 13px; line-height: 1.5; }
+.seatMapUnavailable a { display: inline-flex; align-items: center; gap: 5px; color: var(--blue); font-size: 12px; font-weight: 750; }
+.seatMapFooter {
+  min-height: 39px;
+  padding: 9px 17px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--muted);
+  background: #fafbfc;
+  border-top: 1px solid var(--line);
+  font-size: 10px;
+}
+.seatMapFooter span { display: flex; align-items: center; gap: 6px; }
+.seatMapFooter i { width: 11px; height: 11px; border-radius: 2px; background: #80b8e2; }
+.seatMapDisclaimer { margin: 0; padding: 13px 17px; color: #758197; background: #f7f9fb; border-top: 1px solid var(--line); font-size: 10px; line-height: 1.45; }
+.eventInfoPanel { padding: 23px; }
+.eventInfoHeading { margin-bottom: 18px; }
+.eventFacts { margin: 0; display: grid; }
+.eventFacts > div { padding: 14px 0; display: grid; grid-template-columns: 125px 1fr; gap: 10px; border-top: 1px solid var(--line); }
+.eventFacts dt { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 11px; font-weight: 700; }
+.eventFacts dt svg { color: var(--blue); }
+.eventFacts dd { margin: 0; display: grid; gap: 4px; font-size: 12px; font-weight: 750; line-height: 1.4; }
+.eventFacts dd small { color: var(--muted); font-size: 10px; font-weight: 500; }
+.eventStatus {
+  width: fit-content;
+  margin: 4px 0 17px;
+  padding: 6px 9px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 20px;
+  color: #0b7651;
+  background: #e3f6ef;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.eventStatus i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.status-canceled, .status-off-sale { color: #a0293d; background: #fff0f2; }
+.eventDescription { margin: 17px 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.importantInfo { margin: 14px 0; padding: 12px; display: flex; align-items: flex-start; gap: 9px; border-radius: 8px; color: #695b30; background: #fff8df; }
+.importantInfo svg { flex: none; }
+.importantInfo p, .accessibilityInfo p { margin: 0; font-size: 11px; line-height: 1.55; }
+.accessibilityInfo { margin: 16px 0; }
+.accessibilityInfo strong { display: block; margin-bottom: 5px; font-size: 11px; }
+.ticketmasterLink {
+  min-height: 44px;
+  margin-top: 18px;
+  padding: 10px 14px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  border-radius: 8px;
+  color: #fff;
+  background: var(--blue);
+  text-align: center;
+  font-size: 12px;
+  font-weight: 800;
+}
+.ticketmasterLink:hover { background: var(--blue-dark); }
+.removeDetailButton {
+  width: 100%;
+  margin-top: 9px;
+  padding: 10px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  color: #9b3043;
+  background: transparent;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+}
+.untrackedEvent, .detailLoading {
+  min-height: calc(100vh - 72px);
+  padding: 40px 24px;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  color: var(--muted);
+  text-align: center;
+}
+.untrackedEvent > svg { color: var(--blue); }
+.untrackedEvent h1 { margin: 13px 0 7px; color: var(--ink); }
+.untrackedEvent p { margin: 0 0 20px; }
+.untrackedEvent a { padding: 11px 16px; display: inline-flex; align-items: center; gap: 7px; border-radius: 7px; color: white; background: var(--blue); font-weight: 750; }
+.detailLoading { display: flex; gap: 10px; }
+.detailLoading span { width: 17px; height: 17px; border: 2px solid #b9d9f7; border-top-color: var(--blue); border-radius: 50%; animation: spin .7s linear infinite; }
+
+@media (max-width: 950px) {
+  .detailContent { grid-template-columns: 1fr; }
+  .seatMapCanvas { height: 520px; }
+}
+
+@media (max-width: 700px) {
+  .headerSearchAction { padding: 0 11px; font-size: 0; }
+  .searchResultCard { grid-template-columns: 115px 1fr; gap: 12px; }
+  .searchResultAction { grid-column: 1 / 3; grid-template-columns: 1fr auto; align-items: center; }
+  .searchResultAction a { padding-inline: 9px; }
+  .simplifiedFooter { grid-template-columns: 1fr 1fr; }
+  .simplifiedFooter > div:first-child { grid-column: 1 / 3; }
+  .detailContent { width: 100%; padding-top: 20px; gap: 18px; }
+  .seatMapSection, .eventInfoPanel { border-radius: 0; border-inline: 0; }
+  .seatMapCanvas { height: 430px; }
+}
+
+@media (max-width: 480px) {
+  .searchResultCard { grid-template-columns: 90px 1fr; padding: 9px; }
+  .searchResultBody h3 { font-size: 14px; }
+  .searchResultBody p { font-size: 10px; }
+  .classificationPill { font-size: 8px; }
+  .detailSectionHeading { align-items: flex-start; }
+  .mapSource { max-width: 90px; text-align: right; }
+  .seatMapCanvas { height: 365px; }
+  .seatMapFooter span:last-child { display: none; }
+  .eventFacts > div { grid-template-columns: 105px 1fr; }
+}

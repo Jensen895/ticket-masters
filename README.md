@@ -1,6 +1,6 @@
 # ticket-masters
 
-A low-latency ticket comparison skeleton: one searchable catalog, normalized listings from multiple marketplaces, and a fresh cross-source price snapshot.
+A personal event board backed by Ticketmaster. Search the Ticketmaster catalog, explicitly add the events you care about, and revisit their dates, venues, event information, and interactive seat maps.
 
 ## Repository map
 
@@ -13,18 +13,22 @@ infra          Local PostgreSQL/Redis bootstrap
 docs           Architecture and delivery notes
 ```
 
-## Local setup (no Docker required)
+## Local setup
 
 Requires Node 20+ and pnpm 10+.
 
-```bash
-pnpm install
-pnpm dev
-```
+1. Create a Ticketmaster Discovery API key at [developer.ticketmaster.com](https://developer.ticketmaster.com/products-and-docs/apis/getting-started/).
+2. Copy `.env.example` to `.env.local` and set `TICKETMASTER_API_KEY`.
+3. Install and run:
 
-Open `http://localhost:3000`. The web app intentionally falls back to shared demo data until the API is connected to its repositories, so the complete UI is explorable from the first run.
+   ```bash
+   pnpm install
+   pnpm dev
+   ```
 
-API documentation is available at `http://localhost:4000/docs`. Local mode uses demo repositories and an in-memory refresh queue.
+Open `http://localhost:3000`. The dashboard intentionally starts empty. Added events are stored in the browser's local storage and are not shared between browsers or users.
+
+The Next.js server proxies Ticketmaster requests so the API key is never sent to the browser. Ticketmaster's public Discovery API supplies event metadata and a static venue seat-map image. It does not expose live per-seat inventory; the app links to Ticketmaster for current seat availability.
 
 ## Production-like local setup
 
@@ -36,7 +40,7 @@ docker compose up -d
 pnpm dev:full
 ```
 
-PostgreSQL listens on port `5432` and Redis on port `6379`. Set `QUEUE_DRIVER=redis` whenever the API should enqueue work for the refresh worker.
+PostgreSQL listens on port `5432` and Redis on port `6379`. The API and worker remain available as scaffolding for a future authenticated, server-persisted event collection.
 
 ## Quality checks
 

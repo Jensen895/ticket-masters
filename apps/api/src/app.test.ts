@@ -17,10 +17,10 @@ test("GET /health returns service health", async () => {
   await app.close();
 });
 
-test("GET /v1/events returns demo catalog", async () => {
+test("GET /v1/events starts with an empty catalog", async () => {
   const app = await createApp(loadConfig({}), { refreshQueue: queue });
   const response = await app.inject({ method: "GET", url: "/v1/events?category=Music" });
   assert.equal(response.statusCode, 200);
-  assert.ok(response.json().items.length > 0);
+  assert.deepEqual(response.json().items, []);
   await app.close();
 });

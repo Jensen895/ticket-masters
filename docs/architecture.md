@@ -1,6 +1,17 @@
 # Architecture
 
-## Product boundary
+## Current product boundary
+
+The web experience is user-curated rather than pre-populated:
+
+1. Search requests go through server-side Next.js routes to the Ticketmaster Discovery API.
+2. The browser adds only explicitly selected events to a local-storage collection.
+3. The home page groups that collection by Ticketmaster classification.
+4. Selecting a saved event refreshes its details and renders Ticketmaster's static seat-map image in a pan-and-zoom viewer.
+
+The Discovery API does not provide live individual-seat inventory. The venue map is therefore a navigable reference; current selectable seats remain on Ticketmaster. A future authenticated repository can replace browser storage without changing the Ticketmaster mapping layer.
+
+## Future comparison-service boundary
 
 ticket-masters keeps a canonical event catalog and compares normalized offers from authorized seller APIs or compliant collectors. The skeleton does not bypass access controls or ship marketplace-specific crawling logic. Each connector must be reviewed against the seller's API terms, robots policy, rate limits, and applicable law before it is enabled.
 

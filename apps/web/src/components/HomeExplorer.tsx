@@ -1,31 +1,109 @@
 "use client";
 
-import type { EventCategory, EventSummary } from "@ticket-hub/contracts";
-import { ArrowRight, CalendarDays, ChevronRight, MapPin, Search, ShieldCheck, Sparkles, Zap } from "lucide-react";
-import Link from "next/link";
-import { FormEvent, useMemo, useState } from "react";
+import type {
+  EventClassification,
+  TicketmasterSearchResponse,
+  TrackedEvent,
+} from "@ticket-hub/contracts";
+import {
+  CalendarDays,
+  CheckCircle2,
+  MapPin,
+  Search,
+  ShieldCheck,
+  Sparkles,
+  Ticket,
+} from "lucide-react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { EventCard } from "./EventCard";
+import { SearchResultCard } from "./SearchResultCard";
+import { readTrackedEvents, writeTrackedEvents } from "@/lib/tracked-events";
 
-const categories: Array<"All" | EventCategory> = ["All", "Music", "Sports", "Arts", "Comedy"];
+const classifications: Array<"All" | EventClassification> = [
+  "All",
+  "Music",
+  "Sports",
+  "Arts & Theater",
+  "Comedy",
+  "Family",
+  "Other",
+];
 
-export function HomeExplorer({ events }: { events: EventSummary[] }) {
+const groupOrder: EventClassification[] = ["Music", "Sports", "Arts & Theater", "Comedy", "Family", "Other"];
+
+export function HomeExplorer() {
+  const [trackedEvents, setTrackedEvents] = useState<TrackedEvent[]>([]);
+  const [hydrated, setHydrated] = useState(false);
   const [query, setQuery] = useState("");
-  const [submittedQuery, setSubmittedQuery] = useState("");
-  const [category, setCategory] = useState<(typeof categories)[number]>("All");
+  const [city, setCity] = useState("");
+  const [results, setResults] = useState<TrackedEvent[]>([]);
+  const [resultTotal, setResultTotal] = useState(0);
+  const [resultPage, setResultPage] = useState(0);
+  const [pageCount, setPageCount] = useState(0);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string>();
+  const [classification, setClassification] = useState<(typeof classifications)[number]>("All");
 
-  const visibleEvents = useMemo(() => {
-    const normalized = submittedQuery.trim().toLowerCase();
-    return events.filter((event) => {
-      const categoryMatches = category === "All" || event.category === category;
-      const queryMatches = !normalized || [event.name, event.venue.name, event.venue.city].some((value) => value.toLowerCase().includes(normalized));
-      return categoryMatches && queryMatches;
-    });
-  }, [category, events, submittedQuery]);
+  useEffect(() => {
+    setTrackedEvents(readTrackedEvents(window.localStorage));
+    setHydrated(true);
+  }, []);
 
-  function submitSearch(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSubmittedQuery(query);
-    document.querySelector("#events")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const trackedIds = useMemo(() => new Set(trackedEvents.map((event) => event.id)), [trackedEvents]);
+  const groupedEvents = useMemo(() => groupOrder.flatMap((group) => {
+    if (classification !== "All" && classification !== group) return [];
+    const events = trackedEvents.filter((event) => event.classification === group);
+    return events.length ? [{ classification: group, events }] : [];
+  }), [classification, trackedEvents]);
+
+  function persist(events: TrackedEvent[]) {
+    setTrackedEvents(events);
+    writeTrackedEvents(window.localStorage, events);
+  }
+
+  function addEvent(event: TrackedEvent) {
+    if (trackedIds.has(event.id)) return;
+    persist([event, ...trackedEvents]);
+  }
+
+  function removeEvent(eventId: string) {
+    persist(trackedEvents.filter((event) => event.id !== eventId));
+  }
+
+  async function searchTicketmaster(page = 0, append = false) {
+    setLoading(true);
+    setError(undefined);
+    setHasSearched(true);
+    if (!append) setResults([]);
+    try {
+      const params = new URLSearchParams();
+      if (query.trim()) params.set("q", query.trim());
+      if (city.trim()) params.set("city", city.trim());
+      params.set("page", String(page));
+      const response = await fetch(`/api/ticketmaster/events?${params.toString()}`);
+      const payload = await response.json() as TicketmasterSearchResponse | { message?: string };
+      if (!response.ok) throw new Error("message" in payload ? payload.message : undefined);
+      const search = payload as TicketmasterSearchResponse;
+      setResults((current) => append
+        ? [...current, ...search.items.filter((item) => !current.some((existing) => existing.id === item.id))]
+        : search.items);
+      setResultTotal(search.total);
+      setResultPage(search.page);
+      setPageCount(search.pageCount);
+      if (!append) window.setTimeout(() => document.querySelector("#search-results")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+    } catch (caught) {
+      setResults([]);
+      setResultTotal(0);
+      setError(caught instanceof Error && caught.message ? caught.message : "Search failed. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function submitSearch(formEvent: FormEvent<HTMLFormElement>) {
+    formEvent.preventDefault();
+    void searchTicketmaster();
   }
 
   return (
@@ -34,92 +112,112 @@ export function HomeExplorer({ events }: { events: EventSummary[] }) {
         <div className="heroBackdrop" />
         <div className="heroGlow" />
         <div className="heroContent">
-          <p className="eyebrow"><Sparkles size={15} /> One search. Every marketplace.</p>
-          <h1>Find your seat.<br /><span>Keep the change.</span></h1>
-          <p className="heroCopy">Compare real-time ticket prices from the sites you trust—without opening ten tabs.</p>
+          <p className="eyebrow"><Sparkles size={15} /> Your personal event board</p>
+          <h1>Find it on Ticketmaster.<br /><span>Keep it here.</span></h1>
+          <p className="heroCopy">Search Ticketmaster’s catalog, add the events you care about, and keep their dates, venues, and seat maps in one place.</p>
           <form className="heroSearch" role="search" onSubmit={submitSearch}>
             <div className="heroSearchField">
               <Search size={22} />
               <label>
-                <span>What do you want to see?</span>
+                <span>Search Ticketmaster</span>
                 <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Artist, team, venue or event" />
               </label>
             </div>
             <div className="heroLocation">
               <MapPin size={21} />
               <label>
-                <span>Near</span>
-                <input defaultValue="Los Angeles, CA" aria-label="Location" />
+                <span>City (optional)</span>
+                <input value={city} onChange={(event) => setCity(event.target.value)} placeholder="Los Angeles" />
               </label>
             </div>
-            <button type="submit">Search</button>
+            <button type="submit" disabled={loading}>{loading ? "Searching…" : "Search"}</button>
           </form>
           <div className="heroTrust">
-            <span><Zap size={14} /> Prices refreshed live</span>
-            <span><ShieldCheck size={14} /> Verified marketplaces</span>
-            <span><CalendarDays size={14} /> All-in pricing</span>
+            <span><Ticket size={14} /> Ticketmaster event catalog</span>
+            <span><ShieldCheck size={14} /> Added only when you choose</span>
+            <span><CalendarDays size={14} /> Dates, venues and seat maps</span>
           </div>
         </div>
       </section>
 
       <main>
-        <section className="categoryBar" aria-label="Event categories">
+        {hasSearched && (
+          <section className="searchResultsSection pageShell" id="search-results" aria-live="polite">
+            <div className="sectionHeading">
+              <div>
+                <p className="sectionKicker">Ticketmaster results</p>
+                <h2>{loading ? "Searching…" : error ? "Search unavailable" : `${resultTotal.toLocaleString()} event${resultTotal === 1 ? "" : "s"} found`}</h2>
+              </div>
+              <button className="textButton" type="button" onClick={() => { setHasSearched(false); setResults([]); setError(undefined); }}>Close results</button>
+            </div>
+            {error ? (
+              <div className="inlineError"><strong>We couldn’t complete that search.</strong><span>{error}</span></div>
+            ) : !loading && results.length === 0 ? (
+              <div className="emptyState compactEmpty"><Search size={26} /><h3>No Ticketmaster events found</h3><p>Try a broader event, artist, venue, or city.</p></div>
+            ) : (
+              <div className="searchResultGrid">
+                {results.map((event) => (
+                  <SearchResultCard key={event.id} event={event} added={trackedIds.has(event.id)} onAdd={() => addEvent(event)} />
+                ))}
+              </div>
+            )}
+            {!error && !loading && resultPage + 1 < pageCount && (
+              <button className="loadMoreButton" type="button" onClick={() => void searchTicketmaster(resultPage + 1, true)}>
+                Load more events
+              </button>
+            )}
+          </section>
+        )}
+
+        <section className="categoryBar" aria-label="Saved event classifications">
           <div className="pageShell categoryInner">
-            {categories.map((item) => (
-              <button key={item} type="button" className={category === item ? "active" : ""} onClick={() => setCategory(item)}>
-                {item === "All" ? "All events" : item === "Arts" ? "Arts & Theater" : item}
+            {classifications.map((item) => (
+              <button key={item} type="button" className={classification === item ? "active" : ""} onClick={() => setClassification(item)}>
+                {item === "All" ? `All my events (${trackedEvents.length})` : item}
               </button>
             ))}
           </div>
         </section>
 
-        <section className="pageShell eventsSection" id="events">
+        <section className="pageShell eventsSection" id="my-events">
           <div className="sectionHeading">
             <div>
-              <p className="sectionKicker">Happening near you</p>
-              <h2>{submittedQuery ? `Results for “${submittedQuery}”` : "Popular in Los Angeles"}</h2>
+              <p className="sectionKicker">Your collection</p>
+              <h2>{classification === "All" ? "My events" : classification}</h2>
             </div>
-            <button className="textButton" type="button">View all <ChevronRight size={17} /></button>
           </div>
-          {visibleEvents.length > 0 ? (
-            <div className="eventGrid">
-              {visibleEvents.map((event) => <EventCard event={event} key={event.id} />)}
+          {hydrated && groupedEvents.length > 0 ? (
+            <div className="eventGroups">
+              {groupedEvents.map((group) => (
+                <section className="eventGroup" key={group.classification}>
+                  {classification === "All" && <h3>{group.classification}<span>{group.events.length}</span></h3>}
+                  <div className="eventGrid">
+                    {group.events.map((event) => <EventCard event={event} key={event.id} onRemove={() => removeEvent(event.id)} />)}
+                  </div>
+                </section>
+              ))}
+            </div>
+          ) : hydrated ? (
+            <div className="emptyState">
+              <Ticket size={30} />
+              <h3>{trackedEvents.length ? `No ${classification} events yet` : "No events added yet"}</h3>
+              <p>{trackedEvents.length ? "Choose another classification or add an event from Ticketmaster." : "Search Ticketmaster above and add an event. It will stay here on this browser."}</p>
+              <button type="button" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>Search Ticketmaster</button>
             </div>
           ) : (
-            <div className="emptyState">
-              <Search size={30} />
-              <h3>No events found</h3>
-              <p>Try a different artist, venue, city, or category.</p>
-              <button type="button" onClick={() => { setQuery(""); setSubmittedQuery(""); setCategory("All"); }}>Clear search</button>
-            </div>
+            <div className="emptyState loadingState">Loading your events…</div>
           )}
         </section>
 
-        <section className="compareBanner pageShell">
-          <div>
-            <p className="sectionKicker light">How ticket-masters works</p>
-            <h2>Same seats. Smarter price.</h2>
-            <p>We scan leading ticket marketplaces at once, normalize the fees, and surface the best value while it’s still available.</p>
-            <Link href={`/events/${events[0]?.slug ?? ""}`}>See a live comparison <ArrowRight size={18} /></Link>
-          </div>
-          <div className="comparisonGraphic" aria-hidden="true">
-            <div className="scanLine" />
-            <div className="graphicCard cardOne"><span>SeatGeek</span><strong>$128</strong><small>All-in</small></div>
-            <div className="graphicCard cardTwo"><span>StubHub</span><strong>$133</strong><small>All-in</small></div>
-            <div className="graphicCard cardThree"><span>Ticketmaster</span><strong>$140</strong><small>All-in</small></div>
-            <div className="bestTag">Best price</div>
-          </div>
-        </section>
-
-        <section className="pageShell confidenceSection">
+        <section className="pageShell confidenceSection" id="how-it-works">
           <div className="confidenceIntro">
-            <p className="sectionKicker">Search with confidence</p>
-            <h2>Everything you need.<br />Nothing you don’t.</h2>
+            <p className="sectionKicker">Focused by design</p>
+            <h2>Only the events<br />you add.</h2>
           </div>
           <div className="confidenceGrid">
-            <article><span><Zap /></span><h3>Fresh, fast prices</h3><p>Listings refresh in parallel, so you see the newest available price in seconds.</p></article>
-            <article><span><ShieldCheck /></span><h3>Trusted sources</h3><p>Compare inventory from established, verified ticket marketplaces.</p></article>
-            <article><span><Sparkles /></span><h3>No surprise fees</h3><p>Compare estimated totals with mandatory fees included whenever available.</p></article>
+            <article><span><Search /></span><h3>Search the catalog</h3><p>Look across Ticketmaster by event, artist, team, venue, or city.</p></article>
+            <article><span><CheckCircle2 /></span><h3>Add what matters</h3><p>Your main page remains empty until you choose an event to track.</p></article>
+            <article><span><MapPin /></span><h3>Explore the venue</h3><p>Open an event for current details and a pan-and-zoom seat map when available.</p></article>
           </div>
         </section>
       </main>

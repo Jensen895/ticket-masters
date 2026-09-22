@@ -6,6 +6,45 @@ export type Marketplace =
 
 export type EventCategory = "Music" | "Sports" | "Arts" | "Comedy";
 
+export type EventClassification =
+  | "Music"
+  | "Sports"
+  | "Arts & Theater"
+  | "Comedy"
+  | "Family"
+  | "Other";
+
+/** A Ticketmaster event explicitly added to this app by the current user. */
+export interface TrackedEvent {
+  id: string;
+  name: string;
+  classification: EventClassification;
+  genre?: string;
+  startsAt?: string;
+  dateLabel: string;
+  timeLabel: string;
+  venue: Venue;
+  venueAddress?: string;
+  imageUrl?: string;
+  seatMapUrl?: string;
+  ticketmasterUrl: string;
+  status?: string;
+}
+
+export interface TrackedEventDetail extends TrackedEvent {
+  description?: string;
+  importantInfo: string[];
+  attractions: string[];
+  accessibilityInfo?: string;
+}
+
+export interface TicketmasterSearchResponse {
+  items: TrackedEvent[];
+  total: number;
+  page: number;
+  pageCount: number;
+}
+
 export interface Venue {
   name: string;
   city: string;
