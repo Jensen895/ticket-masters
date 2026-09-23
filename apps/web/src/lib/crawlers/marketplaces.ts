@@ -4,6 +4,8 @@ import type {
   CrawledPriceSnapshot,
   Marketplace,
   MarketplaceCrawlResult,
+  SeatMapPoint,
+  SeatMapSeatPosition,
   SeatMapSectionPosition,
   TicketOffer,
   TrackedEvent,
@@ -142,6 +144,43 @@ function rowFromListing(record: Record<string, unknown>) {
   return stringValue(record.row, record.rowName, record.row_name, spot?.row, seat?.row) ?? "—";
 }
 
+function seatsFromListing(record: Record<string, unknown>) {
+  const spot = record.spot && typeof record.spot === "object" ? record.spot as Record<string, unknown> : undefined;
+  const seat = record.seat && typeof record.seat === "object" ? record.seat as Record<string, unknown> : undefined;
+  const seats = new Set<string>();
+  const addSeat = (value: unknown) => {
+    if (typeof value === "string" || typeof value === "number") {
+      for (const label of String(value).split(",").map((item) => item.trim()).filter(Boolean)) seats.add(label);
+      return;
+    }
+    if (value && typeof value === "object") {
+      const candidate = value as Record<string, unknown>;
+      addSeat(candidate.number ?? candidate.name ?? candidate.label ?? candidate.seatNumber);
+    }
+  };
+  for (const value of [record.seats, record.seatNumbers, record.seat_numbers, record.seatNames]) {
+    if (Array.isArray(value)) value.forEach(addSeat);
+    else addSeat(value);
+  }
+  addSeat(stringValue(
+    record.seatNumber,
+    record.seat_number,
+    record.seatName,
+    record.seatLabel,
+    typeof record.seat === "string" ? record.seat : undefined,
+    seat?.number,
+    seat?.name,
+    spot?.seat,
+    spot?.seatNumber,
+  ));
+  const start = numericValue(record.startSeat ?? record.start_seat);
+  const end = numericValue(record.endSeat ?? record.end_seat);
+  if (start && end && Number.isInteger(start) && Number.isInteger(end) && end >= start && end - start < 20) {
+    for (let number = start; number <= end; number += 1) seats.add(String(number));
+  }
+  return [...seats];
+}
+
 function quantityFromListing(record: Record<string, unknown>) {
   const direct = numericValue(record.quantity) ?? numericValue(record.availableQuantity);
   if (direct) return Math.max(1, Math.round(direct));
@@ -172,23 +211,27 @@ function extractListings(
     const price = priceFromListing(record);
     if (!section || !price) return;
     const row = rowFromListing(record);
+    const seats = seatsFromListing(record);
     const id = stringValue(record.id, record.listingId, record.listing_id)
       ?? `${normalizeSection(section)}-${row}-${price.priceCents}`;
-    const dedupeKey = `${id}-${normalizeSection(section)}-${row}-${price.priceCents}`;
-    if (seen.has(dedupeKey) || offers.length >= 500) return;
-    seen.add(dedupeKey);
-    offers.push({
-      id: `${source.marketplace}-${id}`,
-      marketplace: source.marketplace,
-      marketplaceLabel: source.label,
-      section,
-      row,
-      quantity: quantityFromListing(record),
-      priceCents: price.priceCents,
-      feesIncluded: price.feesIncluded || pageUsesAllInPricing,
-      deepLink: safeUrlForHost(stringValue(record.seoUrl, record.url), source.domains) ?? sourceUrl,
-      capturedAt,
-    });
+    for (const seatLabel of seats.length ? seats : [undefined]) {
+      const dedupeKey = `${id}-${normalizeSection(section)}-${row}-${seatLabel ?? "any"}-${price.priceCents}`;
+      if (seen.has(dedupeKey) || offers.length >= 500) continue;
+      seen.add(dedupeKey);
+      offers.push({
+        id: `${source.marketplace}-${id}${seatLabel ? `-${seatLabel}` : ""}`,
+        marketplace: source.marketplace,
+        marketplaceLabel: source.label,
+        section,
+        row,
+        seat: seatLabel,
+        quantity: quantityFromListing(record),
+        priceCents: price.priceCents,
+        feesIncluded: price.feesIncluded || pageUsesAllInPricing,
+        deepLink: safeUrlForHost(stringValue(record.seoUrl, record.url), source.domains) ?? sourceUrl,
+        capturedAt,
+      });
+    }
   });
   return offers;
 }
@@ -297,12 +340,38 @@ async function crawlSource(source: SourceDefinition, event: TrackedEvent): Promi
 interface GeometryShape {
   labels?: Array<{ text?: string; x?: number; y?: number }>;
   bounds?: string[];
+  path?: string;
 }
 
 interface GeometrySegment {
+  id?: string;
   name?: string;
   segmentCategory?: string;
   shapes?: GeometryShape[];
+  segments?: GeometrySegment[];
+  totalPlaces?: number;
+}
+
+interface GeometryPlace {
+  grid?: string;
+  gridX?: number;
+  gridY?: number;
+  id?: string;
+  name?: string;
+  x?: number;
+  y?: number;
+}
+
+interface SeatMapGeometry {
+  sectionPositions: SeatMapSectionPosition[];
+  seatPositions: SeatMapSeatPosition[];
+  mapWidth?: number;
+  mapHeight?: number;
+}
+
+function pointsFromShape(shape: GeometryShape): Array<{ x: number; y: number }> {
+  return shape.bounds?.flatMap((bounds) => [...bounds.matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)]
+    .map((match) => ({ x: Number(match[1]), y: Number(match[2]) }))) ?? [];
 }
 
 interface GeometryPage {
@@ -315,8 +384,7 @@ interface GeometryPage {
 function positionFromShape(shape: GeometryShape) {
   const label = shape.labels?.[0];
   if (typeof label?.x === "number" && typeof label.y === "number") return { x: label.x, y: label.y };
-  const points = shape.bounds?.flatMap((bounds) => [...bounds.matchAll(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g)]
-    .map((match) => ({ x: Number(match[1]), y: Number(match[2]) }))) ?? [];
+  const points = pointsFromShape(shape);
   if (!points.length) return undefined;
   return {
     x: points.reduce((sum, point) => sum + point.x, 0) / points.length,
@@ -324,40 +392,106 @@ function positionFromShape(shape: GeometryShape) {
   };
 }
 
-async function ticketmasterSectionPositions(eventId: string): Promise<SeatMapSectionPosition[]> {
-  if (!/^[a-zA-Z0-9_-]+$/.test(eventId)) return [];
+function rowSegments(segment: GeometrySegment): Array<{ id: string; name: string }> {
+  const rows: Array<{ id: string; name: string }> = [];
+  const visit = (candidate: GeometrySegment) => {
+    if (candidate.segmentCategory === "ROW" && candidate.id && candidate.name) {
+      rows.push({ id: candidate.id.split(":").at(-1) ?? candidate.id, name: candidate.name });
+    }
+    for (const child of candidate.segments ?? []) visit(child);
+  };
+  visit(segment);
+  return rows.sort((left, right) => right.id.length - left.id.length);
+}
+
+async function ticketmasterSeatMap(eventId: string): Promise<SeatMapGeometry> {
+  if (!/^[a-zA-Z0-9_-]+$/.test(eventId)) return { sectionPositions: [], seatPositions: [] };
   try {
-    const url = `https://mapsapi.tmol.io/maps/geometry/3/event/${encodeURIComponent(eventId)}?systemId=HOST`;
-    const page = JSON.parse(await fetchPublicPage(url)) as { pages?: GeometryPage[] };
+    const baseUrl = `https://mapsapi.tmol.io/maps/geometry/3/event/${encodeURIComponent(eventId)}`;
+    const geometryUrl = `${baseUrl}?systemId=HOST`;
+    const placesUrl = `${baseUrl}/places?systemId=HOST`;
+    const [geometryJson, placesJson] = await Promise.all([
+      fetchPublicPage(geometryUrl),
+      fetchPublicPage(placesUrl).catch(() => "[]"),
+    ]);
+    const page = JSON.parse(geometryJson) as { pages?: GeometryPage[] };
     const geometry = page.pages?.[0];
-    if (!geometry) return [];
+    if (!geometry) return { sectionPositions: [], seatPositions: [] };
     const height = geometry.height ?? 7_680;
     const image = geometry.images?.[0];
     const scale = image?.height ? height / image.height : 10;
     const width = geometry.width ?? (image?.width ? image.width * scale : 10_240);
     const positions = new Map<string, SeatMapSectionPosition>();
+    const rowsBySection = new Map<string, Array<{ id: string; name: string }>>();
     for (const segment of geometry.segments ?? []) {
       if (!segment.name || !segment.shapes?.length) continue;
       const point = positionFromShape(segment.shapes[0]!);
       if (!point) continue;
       const key = normalizeSection(segment.name);
       if (positions.has(key)) continue;
+      const outlinePoints = pointsFromShape(segment.shapes[0]!);
+      const outline: SeatMapPoint[] = outlinePoints.map((outlinePoint) => ({
+        xPercent: outlinePoint.x / width * 100,
+        yPercent: outlinePoint.y / height * 100,
+      }));
       positions.set(key, {
         section: segment.name,
         xPercent: Math.max(2, Math.min(98, point.x / width * 100)),
         yPercent: Math.max(2, Math.min(98, point.y / height * 100)),
+        outline: outline.length >= 3 ? outline : undefined,
+        paths: segment.shapes.flatMap((shape) => shape.path ? [shape.path] : []),
+        seatCount: segment.totalPlaces,
+      });
+      rowsBySection.set(key, rowSegments(segment));
+    }
+    const places = JSON.parse(placesJson) as GeometryPlace[];
+    const seatPositions: SeatMapSeatPosition[] = [];
+    const allRows = [...rowsBySection].flatMap(([sectionKey, rows]) => rows.map((row) => ({ ...row, sectionKey })));
+    const rowsById = new Map(allRows.map((row) => [row.id, row]));
+    const rowIdLengths = [...new Set(allRows.map((row) => row.id.length))].sort((left, right) => right - left);
+    const naturalRowsBySection = new Map([...rowsBySection].map(([key, rows]) => [
+      key,
+      [...rows].sort((left, right) => left.name.localeCompare(right.name, undefined, { numeric: true })),
+    ]));
+    for (const place of (Array.isArray(places) ? places : []).slice(0, 50_000)) {
+      if (!place.grid || !place.id || !place.name || typeof place.x !== "number" || typeof place.y !== "number") continue;
+      let matchedRow: (typeof allRows)[number] | undefined;
+      for (const length of rowIdLengths) {
+        matchedRow = rowsById.get(place.id.slice(0, length));
+        if (matchedRow) break;
+      }
+      const directSectionKey = normalizeSection(place.grid);
+      const reversedSectionKey = normalizeSection([...place.grid].reverse().join(""));
+      const sectionKey = matchedRow?.sectionKey
+        ?? (positions.has(directSectionKey) ? directSectionKey : reversedSectionKey);
+      const section = positions.get(sectionKey);
+      if (!section) continue;
+      const row = matchedRow?.name ?? (typeof place.gridY === "number" ? naturalRowsBySection.get(sectionKey)?.[place.gridY]?.name : undefined);
+      if (!row) continue;
+      seatPositions.push({
+        id: place.id,
+        section: section.section,
+        row,
+        seat: place.name,
+        xPercent: place.x / width * 100,
+        yPercent: place.y / height * 100,
       });
     }
-    return [...positions.values()];
+    return {
+      sectionPositions: [...positions.values()],
+      seatPositions,
+      mapWidth: width,
+      mapHeight: height,
+    };
   } catch {
-    return [];
+    return { sectionPositions: [], seatPositions: [] };
   }
 }
 
 async function createSnapshot(event: TrackedEvent): Promise<CrawledPriceSnapshot> {
-  const [sourceResults, sectionPositions] = await Promise.all([
+  const [sourceResults, seatMap] = await Promise.all([
     Promise.all(sources.map((source) => crawlSource(source, event))),
-    ticketmasterSectionPositions(event.id),
+    ticketmasterSeatMap(event.id),
   ]);
   const sourcesWithPrices = sourceResults.filter((source) => source.offers.length > 0).length;
   return {
@@ -365,12 +499,12 @@ async function createSnapshot(event: TrackedEvent): Promise<CrawledPriceSnapshot
     capturedAt: new Date().toISOString(),
     status: sourcesWithPrices === sources.length ? "fresh" : sourcesWithPrices ? "partial" : "unavailable",
     sources: sourceResults,
-    sectionPositions,
+    ...seatMap,
   };
 }
 
 export function crawlPriceComparison(event: TrackedEvent): Promise<CrawledPriceSnapshot> {
-  const cacheKey = `${event.id}:${event.startsAt ?? "tba"}:${event.attractions?.join("|") ?? ""}`;
+  const cacheKey = `exact-paths-v1:${event.id}:${event.startsAt ?? "tba"}:${event.attractions?.join("|") ?? ""}`;
   const now = Date.now();
   const cached = snapshotCache.get(cacheKey);
   if (cached && cached.expiresAt > now) return cached.value;

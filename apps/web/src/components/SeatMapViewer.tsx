@@ -1,21 +1,32 @@
 "use client";
 
-import type { CrawledPriceSnapshot, Marketplace, MarketplaceCrawlResult } from "@ticket-hub/contracts";
-import { ExternalLink, LocateFixed, Minus, Plus } from "lucide-react";
-import { KeyboardEvent, PointerEvent, useMemo, useRef, useState } from "react";
+import type {
+  CrawledPriceSnapshot,
+  MarketplaceCrawlResult,
+  SeatMapSeatPosition,
+  SeatMapSectionPosition,
+  TicketOffer,
+} from "@ticket-hub/contracts";
+import { Armchair, ExternalLink, LocateFixed, Minus, Plus, X } from "lucide-react";
+import {
+  CSSProperties,
+  KeyboardEvent,
+  PointerEvent,
+  WheelEvent,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 const MIN_ZOOM = 1;
-const MAX_ZOOM = 4;
-const ZOOM_STEP = 0.4;
+const MAX_ZOOM = 7.5;
+const SECTION_ZOOM = 4.25;
+const DETAIL_ZOOM = 2;
+const ZOOM_STEP = 0.45;
 
-const sourceShortNames: Record<Marketplace, string> = {
-  ticketmaster: "TM",
-  seatgeek: "SG",
-  stubhub: "SH",
-  tickpick: "TP",
-  gametime: "GT",
-  "vivid-seats": "VS",
-};
+type RecommendationMode = "lowest" | "best";
+type PricedSeat = { position: SeatMapSeatPosition; offer: TicketOffer };
+type SectionWithPrice = SeatMapSectionPosition & { offer?: TicketOffer };
 
 function clampZoom(value: number) {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
@@ -25,8 +36,15 @@ function normalizeSection(value: string) {
   return value
     .toUpperCase()
     .replace(/\b(?:SECTION|SEC|LEVEL|ZONE|LOWER|UPPER)\b/g, "")
-    .replace(/[^A-Z0-9]/g, "")
-    .replace(/^0+/, "") || "ANY";
+    .replace(/[^A-Z0-9]/g, "") || "ANY";
+}
+
+function normalizePlace(value: string) {
+  return value.toUpperCase().replace(/\b(?:ROW|SEAT)\b/g, "").replace(/[^A-Z0-9]/g, "").replace(/^0+/, "") || "—";
+}
+
+function seatKey(section: string, row: string, seat: string) {
+  return `${normalizeSection(section)}:${normalizePlace(row)}:${normalizePlace(seat)}`;
 }
 
 function money(cents: number) {
@@ -37,16 +55,32 @@ function money(cents: number) {
   }).format(cents / 100);
 }
 
-function minimumPrice(source: MarketplaceCrawlResult) {
-  return source.offers.length ? Math.min(...source.offers.map((offer) => offer.priceCents)) : undefined;
+function cheaper(left: TicketOffer | undefined, right: TicketOffer) {
+  if (!left || right.priceCents < left.priceCents) return right;
+  if (right.priceCents === left.priceCents && right.feesIncluded && !left.feesIncluded) return right;
+  return left;
 }
 
-function sourceStatus(source: MarketplaceCrawlResult) {
-  if (source.status === "blocked") return "Blocked";
+function sectionDistance(section: SeatMapSectionPosition) {
+  return Math.hypot(section.xPercent - 50, section.yPercent - 50);
+}
+
+function zoomForSection(section: SeatMapSectionPosition) {
+  if (!section.outline?.length) return SECTION_ZOOM;
+  const xValues = section.outline.map((point) => point.xPercent);
+  const yValues = section.outline.map((point) => point.yPercent);
+  const sectionSpan = Math.max(
+    Math.max(...xValues) - Math.min(...xValues),
+    Math.max(...yValues) - Math.min(...yValues),
+    1,
+  );
+  return clampZoom(Math.max(SECTION_ZOOM, 58 / sectionSpan));
+}
+
+function availabilityLabel(source: MarketplaceCrawlResult) {
+  if (source.status === "fresh" && source.offers.length) return "Available";
   if (source.status === "not-found") return "Not listed";
-  if (source.status === "unavailable") return "No public price";
-  if (source.status === "error") return "Unavailable";
-  return "—";
+  return "Not available";
 }
 
 export function SeatMapViewer({
@@ -64,31 +98,65 @@ export function SeatMapViewer({
 }) {
   const [zoom, setZoom] = useState(MIN_ZOOM);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const drag = useRef<{ pointerId: number; x: number; y: number } | null>(null);
+  const [mode, setMode] = useState<RecommendationMode>("lowest");
+  const [selectedSectionKey, setSelectedSectionKey] = useState<string>();
+  const [selectedSeatId, setSelectedSeatId] = useState<string>();
+  const map = useRef<HTMLDivElement>(null);
+  const suppressClick = useRef(false);
+  const drag = useRef<{
+    pointerId: number;
+    lastX: number;
+    lastY: number;
+    startX: number;
+    startY: number;
+  } | null>(null);
 
-  const sectionPrices = useMemo(() => {
+  const mapData = useMemo(() => {
+    const allOffers = (prices?.sources ?? []).flatMap((source) => source.offers);
     const positions = new Map((prices?.sectionPositions ?? []).map((position) => [normalizeSection(position.section), position]));
-    const groups = new Map<string, {
-      section: string;
-      xPercent: number;
-      yPercent: number;
-      prices: Map<Marketplace, { cents: number; color: string }>;
-    }>();
-    for (const source of prices?.sources ?? []) {
-      for (const offer of source.offers) {
-        const key = normalizeSection(offer.section);
-        const position = positions.get(key);
-        if (!position || key === "ANY") continue;
-        const group = groups.get(key) ?? { ...position, prices: new Map() };
-        const previous = group.prices.get(source.marketplace);
-        if (!previous || offer.priceCents < previous.cents) {
-          group.prices.set(source.marketplace, { cents: offer.priceCents, color: source.color });
-        }
-        groups.set(key, group);
+    const lowestBySection = new Map<string, TicketOffer>();
+    const lowestBySeat = new Map<string, TicketOffer>();
+
+    for (const offer of allOffers) {
+      const sectionKey = normalizeSection(offer.section);
+      if (sectionKey === "ANY" || !positions.has(sectionKey)) continue;
+      lowestBySection.set(sectionKey, cheaper(lowestBySection.get(sectionKey), offer));
+      if (offer.seat && offer.row !== "—") {
+        const key = seatKey(offer.section, offer.row, offer.seat);
+        lowestBySeat.set(key, cheaper(lowestBySeat.get(key), offer));
       }
     }
-    return [...groups.values()];
+
+    const sections: SectionWithPrice[] = [...positions.entries()].map(([key, position]) => ({
+      ...position,
+      offer: lowestBySection.get(key),
+    }));
+    const pricedSeats: PricedSeat[] = (prices?.seatPositions ?? []).flatMap((position) => {
+      const offer = lowestBySeat.get(seatKey(position.section, position.row, position.seat));
+      return offer ? [{ position, offer }] : [];
+    });
+
+    return { sections, pricedSeats, lowestBySeat };
   }, [prices]);
+
+  const selectedSection = mapData.sections.find((section) => normalizeSection(section.section) === selectedSectionKey);
+  const sectionSeats = useMemo(() => selectedSectionKey
+    ? (prices?.seatPositions ?? []).filter((seat) => normalizeSection(seat.section) === selectedSectionKey)
+    : [], [prices, selectedSectionKey]);
+  const selectedSeat = mapData.pricedSeats.find((seat) => seat.position.id === selectedSeatId);
+
+  const recommendation = useMemo(() => {
+    if (mapData.pricedSeats.length) {
+      return [...mapData.pricedSeats].sort((left, right) => mode === "lowest"
+        ? left.offer.priceCents - right.offer.priceCents
+        : Math.hypot(left.position.xPercent - 50, left.position.yPercent - 50)
+          - Math.hypot(right.position.xPercent - 50, right.position.yPercent - 50)
+          || left.offer.priceCents - right.offer.priceCents)[0];
+    }
+    return [...mapData.sections].filter((section) => section.offer).sort((left, right) => mode === "lowest"
+      ? left.offer!.priceCents - right.offer!.priceCents
+      : sectionDistance(left) - sectionDistance(right) || left.offer!.priceCents - right.offer!.priceCents)[0];
+  }, [mapData, mode]);
 
   function setZoomLevel(next: number) {
     const clamped = clampZoom(next);
@@ -99,24 +167,52 @@ export function SeatMapViewer({
   function reset() {
     setZoom(MIN_ZOOM);
     setOffset({ x: 0, y: 0 });
+    setSelectedSectionKey(undefined);
+    setSelectedSeatId(undefined);
+  }
+
+  function focusSection(section: SectionWithPrice) {
+    if (suppressClick.current || !section.offer) return;
+    const mapElement = map.current;
+    const targetZoom = zoomForSection(section);
+    setSelectedSectionKey(normalizeSection(section.section));
+    setSelectedSeatId(undefined);
+    setZoom(targetZoom);
+    if (mapElement) {
+      setOffset({
+        x: -(section.xPercent / 100 - .5) * mapElement.offsetWidth * targetZoom,
+        y: -(section.yPercent / 100 - .5) * mapElement.offsetHeight * targetZoom,
+      });
+    }
   }
 
   function onPointerDown(event: PointerEvent<HTMLDivElement>) {
     if (!imageUrl || zoom === MIN_ZOOM) return;
+    if ((event.target as Element).closest("button, a")) return;
     event.currentTarget.setPointerCapture(event.pointerId);
-    drag.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+    drag.current = {
+      pointerId: event.pointerId,
+      lastX: event.clientX,
+      lastY: event.clientY,
+      startX: event.clientX,
+      startY: event.clientY,
+    };
   }
 
   function onPointerMove(event: PointerEvent<HTMLDivElement>) {
     if (!drag.current || drag.current.pointerId !== event.pointerId) return;
-    const deltaX = event.clientX - drag.current.x;
-    const deltaY = event.clientY - drag.current.y;
-    drag.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+    const deltaX = event.clientX - drag.current.lastX;
+    const deltaY = event.clientY - drag.current.lastY;
+    drag.current.lastX = event.clientX;
+    drag.current.lastY = event.clientY;
+    if (Math.hypot(event.clientX - drag.current.startX, event.clientY - drag.current.startY) > 5) suppressClick.current = true;
     setOffset((current) => ({ x: current.x + deltaX, y: current.y + deltaY }));
   }
 
   function stopDragging(event: PointerEvent<HTMLDivElement>) {
-    if (drag.current?.pointerId === event.pointerId) drag.current = null;
+    if (drag.current?.pointerId !== event.pointerId) return;
+    drag.current = null;
+    window.setTimeout(() => { suppressClick.current = false; }, 0);
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -125,42 +221,149 @@ export function SeatMapViewer({
     if (event.key === "0" || event.key === "Escape") reset();
   }
 
+  function onWheel(event: WheelEvent<HTMLDivElement>) {
+    if (!imageUrl) return;
+    event.preventDefault();
+    setZoomLevel(zoom + (event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP));
+  }
+
+  const showSeatDetail = zoom >= DETAIL_ZOOM;
+  const seatsToRender = selectedSectionKey
+    ? sectionSeats
+    : showSeatDetail ? mapData.pricedSeats.map((seat) => seat.position) : [];
+  const recommendedSection = recommendation && "position" in recommendation
+    ? normalizeSection(recommendation.position.section)
+    : recommendation ? normalizeSection(recommendation.section) : undefined;
+
+  const mapStyle = {
+    aspectRatio: prices?.mapWidth && prices.mapHeight ? `${prices.mapWidth} / ${prices.mapHeight}` : undefined,
+    transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
+    "--map-zoom": zoom,
+  } as CSSProperties;
+  const pathScale = `scale(${100 / (prices?.mapWidth ?? 100)} ${100 / (prices?.mapHeight ?? 100)})`;
+
   return (
     <div className="seatMapViewer">
+      <div className="seatMapMode" aria-label="Seat recommendation">
+        <button className={mode === "lowest" ? "active" : ""} type="button" onClick={() => setMode("lowest")}>Lowest price</button>
+        <button className={mode === "best" ? "active" : ""} type="button" title="Prioritizes available seats closest to the center of the venue map" onClick={() => setMode("best")}>Best seat</button>
+      </div>
       <div className="seatMapControls" aria-label="Seat map zoom controls">
         <button type="button" onClick={() => setZoomLevel(zoom + ZOOM_STEP)} disabled={!imageUrl || zoom >= MAX_ZOOM} aria-label="Zoom in"><Plus size={19} /></button>
         <span aria-live="polite">{Math.round(zoom * 100)}%</span>
         <button type="button" onClick={() => setZoomLevel(zoom - ZOOM_STEP)} disabled={!imageUrl || zoom <= MIN_ZOOM} aria-label="Zoom out"><Minus size={19} /></button>
-        <button type="button" onClick={reset} disabled={!imageUrl || (zoom === MIN_ZOOM && offset.x === 0 && offset.y === 0)} aria-label="Reset seat map"><LocateFixed size={18} /></button>
+        <button type="button" onClick={reset} disabled={!imageUrl || (zoom === MIN_ZOOM && !selectedSectionKey)} aria-label="Reset seat map"><LocateFixed size={18} /></button>
       </div>
       <div
         className={`seatMapCanvas ${zoom > MIN_ZOOM ? "canPan" : ""}`}
         tabIndex={0}
-        role="img"
-        aria-label={imageUrl ? `Ticketmaster seat map and marketplace prices for ${eventName}` : `Seat map unavailable for ${eventName}`}
+        role="application"
+        aria-label={imageUrl ? `Interactive Ticketmaster seat map and lowest marketplace prices for ${eventName}` : `Seat map unavailable for ${eventName}`}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={stopDragging}
         onPointerCancel={stopDragging}
         onKeyDown={onKeyDown}
+        onWheel={onWheel}
       >
         {imageUrl ? (
-          <div className="seatMapTransform" style={{ transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})` }}>
+          <div ref={map} className="seatMapTransform" style={mapStyle}>
             <img src={imageUrl} alt={`Ticketmaster venue seat map for ${eventName}`} draggable={false} />
-            <div className="sectionPriceLayer" aria-label="Prices by seating section">
-              {sectionPrices.map((group) => (
-                <div
-                  className="sectionPriceMarker"
-                  key={normalizeSection(group.section)}
-                  style={{ left: `${group.xPercent}%`, top: `${group.yPercent}%` }}
-                >
-                  <strong>{group.section}</strong>
-                  {[...group.prices].map(([marketplace, value]) => (
-                    <span key={marketplace}><i style={{ background: value.color }} />{sourceShortNames[marketplace]} {money(value.cents)}</span>
+
+            {!showSeatDetail && (
+              <>
+                <svg className="sectionHitLayer" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="Select a seating section">
+                  {mapData.sections.flatMap((section) => section.paths?.length || section.outline?.length ? [(
+                    section.paths?.length ? (
+                    <path
+                      className={`sectionHitArea ${section.offer ? "" : "noListings"} ${normalizeSection(section.section) === recommendedSection ? "recommended" : ""}`}
+                      key={normalizeSection(section.section)}
+                      d={section.paths.join(" ")}
+                      transform={pathScale}
+                      role={section.offer ? "button" : "img"}
+                      tabIndex={section.offer ? 0 : -1}
+                      aria-disabled={!section.offer}
+                      aria-label={`Section ${section.section}${section.offer ? `, tickets from ${money(section.offer.priceCents)}` : ", no listings found"}`}
+                      onClick={section.offer ? () => focusSection(section) : undefined}
+                      onKeyDown={(event) => {
+                        if (section.offer && (event.key === "Enter" || event.key === " ")) focusSection(section);
+                      }}
+                    />
+                    ) : (
+                    <polygon
+                      className={`sectionHitArea ${section.offer ? "" : "noListings"} ${normalizeSection(section.section) === recommendedSection ? "recommended" : ""}`}
+                      key={normalizeSection(section.section)}
+                      points={section.outline!.map((point) => `${point.xPercent},${point.yPercent}`).join(" ")}
+                      role={section.offer ? "button" : "img"}
+                      tabIndex={section.offer ? 0 : -1}
+                      aria-disabled={!section.offer}
+                      aria-label={`Section ${section.section}${section.offer ? `, tickets from ${money(section.offer.priceCents)}` : ", no listings found"}`}
+                      onClick={section.offer ? () => focusSection(section) : undefined}
+                      onKeyDown={(event) => {
+                        if (section.offer && (event.key === "Enter" || event.key === " ")) focusSection(section);
+                      }}
+                    />
+                    )
+                  )] : [])}
+                </svg>
+                <div className="sectionPriceLayer" aria-label="Lowest price by seating section">
+                  {mapData.sections.filter((section) => section.offer || !section.outline?.length).map((section) => (
+                    <button
+                      className={`sectionPriceMarker ${section.offer ? "" : "noListings"} ${normalizeSection(section.section) === recommendedSection ? "recommended" : ""}`}
+                      key={normalizeSection(section.section)}
+                      style={{ left: `${section.xPercent}%`, top: `${section.yPercent}%` }}
+                      type="button"
+                      disabled={!section.offer}
+                      onClick={() => focusSection(section)}
+                    >
+                      <strong>{section.section}</strong>
+                      <span>{section.offer ? money(section.offer.priceCents) : "View seats"}</span>
+                    </button>
                   ))}
                 </div>
-              ))}
-            </div>
+              </>
+            )}
+
+            {showSeatDetail && selectedSection && (selectedSection.paths?.length || selectedSection.outline?.length) && (
+              <svg className="sectionFocusLayer" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                {selectedSection.paths?.length
+                  ? <path d={selectedSection.paths.join(" ")} transform={pathScale} />
+                  : <polygon points={selectedSection.outline!.map((point) => `${point.xPercent},${point.yPercent}`).join(" ")} />}
+              </svg>
+            )}
+
+            {showSeatDetail && (
+              <div className="seatDetailLayer" aria-label={selectedSection ? `Seats in section ${selectedSection.section}` : "Exact seats with public prices"}>
+                {seatsToRender.map((position) => {
+                  const offer = mapData.lowestBySeat.get(seatKey(position.section, position.row, position.seat));
+                  const selected = position.id === selectedSeatId;
+                  return offer ? (
+                    <button
+                      className={`seatDot available ${selected ? "selected" : ""}`}
+                      key={position.id}
+                      style={{ left: `${position.xPercent}%`, top: `${position.yPercent}%` }}
+                      type="button"
+                      aria-label={`Section ${position.section}, row ${position.row}, seat ${position.seat}, ${money(offer.priceCents)} on ${offer.marketplaceLabel}`}
+                      title={`Row ${position.row}, seat ${position.seat} · ${money(offer.priceCents)}`}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (!suppressClick.current) setSelectedSeatId(position.id);
+                      }}
+                    >
+                      <span>{money(offer.priceCents)}</span>
+                    </button>
+                  ) : (
+                    <i
+                      className="seatDot"
+                      key={position.id}
+                      style={{ left: `${position.xPercent}%`, top: `${position.yPercent}%` }}
+                      title={`Section ${position.section}, row ${position.row}, seat ${position.seat}`}
+                    />
+                  );
+                })}
+              </div>
+            )}
           </div>
         ) : (
           <div className="seatMapUnavailable">
@@ -171,27 +374,71 @@ export function SeatMapViewer({
           </div>
         )}
 
-        {imageUrl && (
-          <div className="mapMarketplaceStrip" aria-label="Marketplace price summary">
-            {loadingPrices && !prices ? (
-              <span className="priceCrawlLoading"><i /> Crawling six marketplaces…</span>
-            ) : (prices?.sources ?? []).map((source) => {
-              const minimum = minimumPrice(source);
-              return (
-                <div className={`mapSourcePrice status-${source.status}`} key={source.marketplace}>
-                  <span><i style={{ background: source.color }} />{source.label}</span>
-                  <strong>{minimum ? money(minimum) : sourceStatus(source)}</strong>
-                </div>
-              );
-            })}
+        {imageUrl && loadingPrices && !prices && (
+          <span className="priceCrawlLoading"><i /> Loading sections, seats, and prices…</span>
+        )}
+
+        {imageUrl && !selectedSection && recommendation && (
+          <button
+            className="mapRecommendation"
+            type="button"
+            onClick={() => {
+              const section = "position" in recommendation
+                ? mapData.sections.find((candidate) => normalizeSection(candidate.section) === normalizeSection(recommendation.position.section))
+                : recommendation;
+              if (section) focusSection(section);
+            }}
+          >
+            <span>{mode === "lowest" ? "Lowest found" : "Best available"}</span>
+            <strong>{recommendation.offer ? money(recommendation.offer.priceCents) : "View"}</strong>
+            <small>Section {"position" in recommendation ? recommendation.position.section : recommendation.section}</small>
+          </button>
+        )}
+
+        {imageUrl && selectedSection && (
+          <div className="seatSelectionCard" aria-live="polite">
+            <button className="closeSeatSelection" type="button" onClick={reset} aria-label="Return to all sections"><X size={17} /></button>
+            <span className="selectionEyebrow">Section {selectedSection.section}</span>
+            {selectedSeat ? (
+              <>
+                <h3>Row {selectedSeat.position.row} · Seat {selectedSeat.position.seat}</h3>
+                <div className="selectedSeatPrice"><strong>{money(selectedSeat.offer.priceCents)}</strong><span>lowest on {selectedSeat.offer.marketplaceLabel}</span></div>
+                <p>{selectedSeat.offer.feesIncluded ? "Price includes disclosed fees." : "Fees may be added by the seller."}</p>
+                <a href={selectedSeat.offer.deepLink} target="_blank" rel="noreferrer">
+                  Get this seat on {selectedSeat.offer.marketplaceLabel} <ExternalLink size={15} />
+                </a>
+              </>
+            ) : (
+              <>
+                <h3><Armchair size={17} /> Choose an available seat</h3>
+                <p>{sectionSeats.length
+                  ? `${sectionSeats.length} seat locations shown. Priced dots are listings whose exact seat was publicly disclosed.`
+                  : "Ticketmaster did not publish individual seat coordinates for this section."}</p>
+                {selectedSection.offer && (
+                  <a href={selectedSection.offer.deepLink} target="_blank" rel="noreferrer">
+                    Section listings from {money(selectedSection.offer.priceCents)} <ExternalLink size={15} />
+                  </a>
+                )}
+              </>
+            )}
           </div>
         )}
       </div>
+      {imageUrl && prices && (
+        <div className="mapMarketplaceStrip" aria-label="Resale platform availability">
+          {prices.sources.map((source) => (
+            <div className={`mapSourcePrice status-${source.status}`} key={source.marketplace}>
+              <span><i style={{ background: source.color }} />{source.label}</span>
+              <strong>{availabilityLabel(source)}</strong>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="seatMapFooter">
-        <span><i /> Section markers show each site’s lowest listing</span>
-        <span>Prices are read-only · {prices ? `checked ${new Date(prices.capturedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "waiting for prices"}</span>
+        <span><i /> Click a section to see its exact seat layout</span>
+        <span>{prices ? `${(prices.seatPositions ?? []).length.toLocaleString()} seats · checked ${new Date(prices.capturedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "Waiting for prices"}</span>
       </div>
-      <p className="seatMapDisclaimer">The layout and section coordinates come from Ticketmaster. Prices are read from public marketplace pages; “—” means a site blocked the crawl, had no confident event match, or exposed no public price.</p>
+      <p className="seatMapDisclaimer">Each mapped seat shows only the lowest publicly listed price found across all sources. Exact-seat prices appear only when a marketplace discloses a seat number; section-only listings remain available from the section panel.</p>
     </div>
   );
 }

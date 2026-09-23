@@ -76,6 +76,8 @@ export interface TicketOffer {
   marketplaceLabel: string;
   section: string;
   row: string;
+  /** Exact seat label when the marketplace publishes it. */
+  seat?: string;
   quantity: number;
   priceCents: number;
   feesIncluded: boolean;
@@ -106,6 +108,26 @@ export interface SeatMapSectionPosition {
   section: string;
   xPercent: number;
   yPercent: number;
+  /** Click target traced from Ticketmaster's published section geometry. */
+  outline?: SeatMapPoint[];
+  /** Exact curved section paths in Ticketmaster's native map coordinates. */
+  paths?: string[];
+  seatCount?: number;
+}
+
+export interface SeatMapPoint {
+  xPercent: number;
+  yPercent: number;
+}
+
+/** An exact seat location from Ticketmaster's public place geometry. */
+export interface SeatMapSeatPosition {
+  id: string;
+  section: string;
+  row: string;
+  seat: string;
+  xPercent: number;
+  yPercent: number;
 }
 
 export interface CrawledPriceSnapshot {
@@ -114,6 +136,9 @@ export interface CrawledPriceSnapshot {
   status: "fresh" | "partial" | "unavailable";
   sources: MarketplaceCrawlResult[];
   sectionPositions: SeatMapSectionPosition[];
+  seatPositions: SeatMapSeatPosition[];
+  mapWidth?: number;
+  mapHeight?: number;
 }
 
 export interface MarketplaceQuote {

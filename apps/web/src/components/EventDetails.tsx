@@ -176,7 +176,7 @@ export function EventDetails({ eventId }: { eventId: string }) {
               <p className="sectionKicker">Seat allocations</p>
               <h2>Venue seat map</h2>
             </div>
-            <span className="mapSource">Ticketmaster layout · six price sources</span>
+            <span className="mapSource">Interactive seat geometry · lowest price across six sources</span>
           </div>
           <SeatMapViewer
             imageUrl={event.seatMapUrl}

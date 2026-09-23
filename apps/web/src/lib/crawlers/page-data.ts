@@ -167,8 +167,7 @@ export function normalizeSection(value: string) {
   return value
     .toUpperCase()
     .replace(/\b(?:SECTION|SEC|LEVEL|ZONE|LOWER|UPPER)\b/g, "")
-    .replace(/[^A-Z0-9]/g, "")
-    .replace(/^0+/, "") || "ANY";
+    .replace(/[^A-Z0-9]/g, "") || "ANY";
 }
 
 export function safeUrlForHost(value: string | undefined, domains: string[]) {
