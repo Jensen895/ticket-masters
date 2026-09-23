@@ -7,7 +7,7 @@ import { RedisSnapshotPublisher } from "./services/redis-snapshot-publisher.js";
 import { RefreshCoordinator } from "./services/refresh-coordinator.js";
 
 const config = loadConfig();
-const marketplaces: Marketplace[] = ["ticketmaster", "stubhub", "seatgeek", "vivid-seats"];
+const marketplaces: Marketplace[] = ["ticketmaster", "seatgeek", "stubhub", "tickpick", "gametime", "vivid-seats"];
 const connectors = marketplaces.map((marketplace) => new StubConnector(marketplace));
 const publisher = new RedisSnapshotPublisher(config.redisUrl);
 const logger = {

@@ -1,78 +1,46 @@
 # Architecture
 
-## Current product boundary
-
-The web experience is user-curated rather than pre-populated:
-
-1. Search requests go through server-side Next.js routes to the Ticketmaster Discovery API.
-2. The browser adds only explicitly selected events to a local-storage collection.
-3. The home page groups that collection by Ticketmaster classification.
-4. Selecting a saved event refreshes its details and renders Ticketmaster's static seat-map image in a pan-and-zoom viewer.
-
-The Discovery API does not provide live individual-seat inventory. The venue map is therefore a navigable reference; current selectable seats remain on Ticketmaster. A future authenticated repository can replace browser storage without changing the Ticketmaster mapping layer.
-
-## Future comparison-service boundary
-
-ticket-masters keeps a canonical event catalog and compares normalized offers from authorized seller APIs or compliant collectors. The skeleton does not bypass access controls or ship marketplace-specific crawling logic. Each connector must be reviewed against the seller's API terms, robots policy, rate limits, and applicable law before it is enabled.
-
-## Services
+## Active private-use flow
 
 ```text
-Browser / CDN
-      |
-      v
-Next.js web -----> Fastify read API -----> Redis hot snapshots
-                         |                         ^
-                         v                         |
-                    PostgreSQL              atomic publish
-                         ^                         |
-                         |                         |
-                 discovery worker       refresh coordinator
-                         |                  /   |   \
-                         +------------ seller connectors
+Browser
+  │
+  ├─ search ───────> Next.js /api/ticketmaster/events
+  │                         │
+  │                         └─ Ticketmaster public search HTML
+  │
+  └─ open event ───> refresh Ticketmaster base record
+                     then POST /api/prices
+                              │
+                              ├─ six public marketplace pages (parallel)
+                              └─ Ticketmaster public map geometry
+                                         │
+                                         v
+                              normalized read-only snapshot
+                                         │
+                                         v
+                              section price labels on one map
 ```
 
-- **Web:** server-rendered discovery pages, client-side filters, and an SSE-ready live-price panel.
-- **API:** validates requests, reads hot snapshots, returns stale-but-valid data immediately, and enqueues refreshes.
-- **Worker:** keeps network I/O outside request handlers. It performs one slow discovery pass, then cheap parallel refresh passes.
-- **PostgreSQL:** durable canonical events, source mappings, venue/seat metadata, and partitioned price history.
-- **Redis:** latest immutable event snapshot, distributed locks, refresh jobs, source health, and short-lived search caches.
+The browser stores the user’s selected events in local storage. The Next.js server owns all crawling, so remote sites are never called from the browser and no secret or seller API key is required.
 
-## Two crawl paths
+## Collection boundary
 
-### Initial discovery (allowed to be slow)
+Collectors request ordinary public pages with a descriptive user agent, a 10-second timeout, a 10 MB response cap, and a short in-process cache. They parse:
 
-1. Acquire an event-level discovery lock and fan out to enabled connectors.
-2. Resolve seller-specific events into one canonical event using artist, venue, start time, and location.
-3. Fetch stable metadata once: venue, timezone, sections/rows, seat-map references, policies, and source URLs.
-4. Persist raw evidence separately, normalize the catalog in PostgreSQL, and create source mappings.
-5. Run the regular refresh path and atomically publish the first complete snapshot.
+- Ticketmaster `__NEXT_DATA__` for catalog metadata and static map URLs.
+- Marketplace JSON-LD for event discovery and event-level price ranges.
+- Publicly embedded JSON page state for section, row, quantity, and price listings.
+- Ticketmaster map geometry labels for section coordinates.
 
-### Repeat refresh (8-second internal deadline)
+Collectors do not authenticate, execute anti-bot workarounds, or retry around access denials. HTTP 401, 403, and 429 responses become a visible `blocked` source status. Missing confident title/date/venue matches become `not-found`; absent public listings become `unavailable`.
 
-1. Return the current Redis snapshot to the client immediately; enqueue a refresh only if it is stale or explicitly requested.
-2. A coordinator fans out all source calls concurrently, with per-source deadlines, circuit breakers, and rate limits.
-3. Each adapter fetches only volatile inventory fields. Stable event/venue data is reused from discovery.
-4. Normalize currency, fees, section/row labels, quantities, and deep links in memory.
-5. Publish a new versioned Redis snapshot in one atomic operation. Slow sources retain their last known offers and are marked stale.
-6. Notify connected clients over SSE; persist history asynchronously in batches.
+## Normalization
 
-This makes the visible latency the slowest healthy connector rather than the sum of connectors. A realistic target is p95 under 10 seconds for a completed refresh and under 200 ms for cached API reads. No system can promise a seller has published a price more recently than its upstream permits.
+Event matching combines title token overlap, venue overlap, and start-time proximity. Parking/add-on events are penalized unless the requested event is itself parking. Section labels are case-folded and stripped of common `section`, `sec`, `level`, and `zone` prefixes before matching.
 
-## Scale and reliability
+Listing money is stored as integer cents. A nested public `total` is marked fee-inclusive; ambiguous prices are not labeled all-in. For each Ticketmaster section, the UI shows the lowest listing found per marketplace. Event-wide prices with no published section remain visible in the marketplace summary strip rather than being assigned to a made-up map location.
 
-- Partition refresh queues by source so one blocked seller cannot starve others.
-- Deduplicate refreshes with a Redis lock keyed by canonical event ID.
-- Autoscale connector workers on queue age, not CPU alone.
-- Use stale-while-revalidate and show source timestamps instead of blanking results on partial failure.
-- Store money as integer minor units and preserve fee-inclusion semantics.
-- Version connector parsers and retain sampled raw responses for regression testing.
-- Add OpenTelemetry spans across enqueue, fetch, normalize, publish, and stream stages.
+## Persistence and scaling path
 
-## Next implementation slices
-
-1. Add database migrations and repository implementations behind the current API interfaces.
-2. Integrate one official marketplace API end-to-end and establish freshness/error SLOs.
-3. Add identity, watchlists, alerts, and notification preferences.
-4. Add section normalization and a licensed/venue-provided interactive seat map.
-5. Add connector contract tests, recorded fixtures, and synthetic freshness monitoring.
+The current crawl cache is intentionally process-local for a single private instance. The existing Fastify, worker, Redis, and PostgreSQL projects remain a path to durable history and background refreshes. A hosted or multi-user deployment should move crawling to the worker, persist source-event mappings, add source-specific rate limits, and review each marketplace’s current terms and robots policy before enabling it.

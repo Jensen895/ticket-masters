@@ -113,8 +113,8 @@ export function HomeExplorer() {
         <div className="heroGlow" />
         <div className="heroContent">
           <p className="eyebrow"><Sparkles size={15} /> Your personal event board</p>
-          <h1>Find it on Ticketmaster.<br /><span>Keep it here.</span></h1>
-          <p className="heroCopy">Search Ticketmaster’s catalog, add the events you care about, and keep their dates, venues, and seat maps in one place.</p>
+          <h1>Find the event.<br /><span>Compare every market.</span></h1>
+          <p className="heroCopy">Crawl Ticketmaster for event details and the venue map, then place public prices from six ticket sites on that same map.</p>
           <form className="heroSearch" role="search" onSubmit={submitSearch}>
             <div className="heroSearchField">
               <Search size={22} />
@@ -133,9 +133,9 @@ export function HomeExplorer() {
             <button type="submit" disabled={loading}>{loading ? "Searching…" : "Search"}</button>
           </form>
           <div className="heroTrust">
-            <span><Ticket size={14} /> Ticketmaster event catalog</span>
+            <span><Ticket size={14} /> No marketplace API keys</span>
             <span><ShieldCheck size={14} /> Added only when you choose</span>
-            <span><CalendarDays size={14} /> Dates, venues and seat maps</span>
+            <span><CalendarDays size={14} /> Six price sources, one map</span>
           </div>
         </div>
       </section>
@@ -215,9 +215,9 @@ export function HomeExplorer() {
             <h2>Only the events<br />you add.</h2>
           </div>
           <div className="confidenceGrid">
-            <article><span><Search /></span><h3>Search the catalog</h3><p>Look across Ticketmaster by event, artist, team, venue, or city.</p></article>
+            <article><span><Search /></span><h3>Crawl the catalog</h3><p>Look across Ticketmaster’s public pages by event, artist, team, venue, or city.</p></article>
             <article><span><CheckCircle2 /></span><h3>Add what matters</h3><p>Your main page remains empty until you choose an event to track.</p></article>
-            <article><span><MapPin /></span><h3>Explore the venue</h3><p>Open an event for current details and a pan-and-zoom seat map when available.</p></article>
+            <article><span><MapPin /></span><h3>Compare on the map</h3><p>Open an event to see public marketplace prices aligned to Ticketmaster sections.</p></article>
           </div>
         </section>
       </main>

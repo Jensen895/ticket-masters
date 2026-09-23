@@ -1,53 +1,53 @@
 # ticket-masters
 
-A personal event board backed by Ticketmaster. Search the Ticketmaster catalog, explicitly add the events you care about, and revisit their dates, venues, event information, and interactive seat maps.
+A private, read-only event price comparison board. It crawls public marketplace pages instead of requiring seller API keys.
+
+## What it does
+
+1. Searches Ticketmaster’s public web results for the event name, date, time, venue, image, and official static seat map.
+2. Saves only events explicitly added by the user in browser local storage.
+3. On the first event-page load, refreshes the base Ticketmaster record and then concurrently crawls Ticketmaster, SeatGeek, StubHub, TickPick, Gametime, and Vivid Seats.
+4. Reads Ticketmaster’s public map geometry and aligns normalized marketplace section names to the same map.
+5. Shows the lowest crawled price from each marketplace in every mapped section, plus each site’s event-wide minimum. Prices are display-only.
+
+The collector uses only publicly returned HTML, JSON-LD, embedded page state, and Ticketmaster’s published map geometry. It does not sign in, solve challenges, spoof sessions, or bypass access controls. A marketplace that blocks plain server requests or does not expose listing data is shown as unavailable (`—`). Site markup changes can require parser maintenance.
 
 ## Repository map
 
 ```text
-apps/web       Next.js storefront and event comparison UI
-apps/api       Fastify read API, refresh endpoint, and SSE contract
-apps/worker    Discovery/refresh orchestration and marketplace adapters
-packages/contracts  Shared domain models, API schemas, and demo fixtures
+apps/web       Next.js UI plus the active private-use crawling routes
+apps/api       Fastify read/refresh service scaffold
+apps/worker    Queue/connector scaffold for a persistent deployment
+packages/contracts  Shared event, offer, crawl-status, and map models
 infra          Local PostgreSQL/Redis bootstrap
-docs           Architecture and delivery notes
+docs           Architecture notes
 ```
 
 ## Local setup
 
-Requires Node 20+ and pnpm 10+.
-
-1. Create a Ticketmaster Discovery API key at [developer.ticketmaster.com](https://developer.ticketmaster.com/products-and-docs/apis/getting-started/).
-2. Copy `.env.example` to `.env.local` and set `TICKETMASTER_API_KEY`.
-3. Install and run:
-
-   ```bash
-   pnpm install
-   pnpm dev
-   ```
-
-Open `http://localhost:3000`. The dashboard intentionally starts empty. Added events are stored in the browser's local storage and are not shared between browsers or users.
-
-The Next.js server proxies Ticketmaster requests so the API key is never sent to the browser. Ticketmaster's public Discovery API supplies event metadata and a static venue seat-map image. It does not expose live per-seat inventory; the app links to Ticketmaster for current seat availability.
-
-## Production-like local setup
-
-When a container runtime is available, start PostgreSQL and Redis and include the worker:
+Requires Node 20+ and pnpm 10+. No marketplace API keys are needed.
 
 ```bash
-cp .env.example .env
-docker compose up -d
-pnpm dev:full
+pnpm install
+pnpm dev
 ```
 
-PostgreSQL listens on port `5432` and Redis on port `6379`. The API and worker remain available as scaffolding for a future authenticated, server-persisted event collection.
+Open `http://localhost:3000`. Search for an event, add it, and open its card. Crawler settings are optional and documented in `.env.example`.
+
+## Operational notes
+
+- Public pages are cached in-process for 60 seconds by default so one page load does not repeatedly hit sellers.
+- Six marketplace crawls run concurrently with a 10-second per-request timeout and a 10 MB response cap.
+- Event matching weighs normalized title, venue, and start time and rejects likely parking-event mismatches.
+- Prices include fees only when the source page explicitly exposes an all-in total. TickPick public prices are treated as fee-inclusive.
+- The current persistence model is browser-local. Restarting the Next.js process clears only the short-lived crawl cache, not saved events.
 
 ## Quality checks
 
 ```bash
 pnpm typecheck
-pnpm lint
+pnpm test
 pnpm build
 ```
 
-See [docs/architecture.md](docs/architecture.md) for the first-crawl and sub-10-second refresh design.
+See [docs/architecture.md](docs/architecture.md) for the crawl and normalization flow.

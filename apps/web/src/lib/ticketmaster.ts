@@ -5,91 +5,48 @@ import type {
   TrackedEventDetail,
 } from "@ticket-hub/contracts";
 
-interface TicketmasterImage {
-  url?: string;
-  ratio?: string;
-  width?: number;
-}
-
-interface TicketmasterClassification {
-  segment?: { name?: string };
-  genre?: { name?: string };
-  subGenre?: { name?: string };
-}
-
-interface TicketmasterVenue {
-  name?: string;
-  city?: { name?: string };
-  state?: { name?: string; stateCode?: string };
-  country?: { name?: string; countryCode?: string };
-  address?: { line1?: string; line2?: string };
-  postalCode?: string;
-  timezone?: string;
-}
-
-export interface TicketmasterApiEvent {
+interface TicketmasterWebsiteEvent {
   id?: string;
-  name?: string;
+  title?: string;
   url?: string;
-  info?: string;
-  pleaseNote?: string;
-  accessibility?: { info?: string };
-  images?: TicketmasterImage[];
-  dates?: {
-    start?: { dateTime?: string; localDate?: string; localTime?: string; dateTBD?: boolean; timeTBA?: boolean };
-    status?: { code?: string };
+  seatmapUrl?: string;
+  dates?: { startDate?: string };
+  venue?: {
+    name?: string;
+    city?: string;
+    state?: string;
+    countryCode?: string;
+    addressLineOne?: string;
+    code?: string;
   };
-  classifications?: TicketmasterClassification[];
-  seatmap?: { staticUrl?: string };
-  _embedded?: {
-    venues?: TicketmasterVenue[];
-    attractions?: Array<{ name?: string }>;
-  };
+  timeZone?: string;
+  cancelled?: boolean;
+  postponed?: boolean;
+  rescheduled?: boolean;
+  soldOut?: boolean;
+  artists?: Array<{
+    name?: string;
+    imageUrls?: Record<string, string | undefined>;
+  }>;
+  majorCategory?: { id?: string };
 }
 
-function normalizeClassification(event: TicketmasterApiEvent): EventClassification {
-  const classification = event.classifications?.[0];
-  const segment = classification?.segment?.name?.toLowerCase() ?? "";
-  const genre = classification?.genre?.name?.toLowerCase() ?? "";
-  const subGenre = classification?.subGenre?.name?.toLowerCase() ?? "";
-
-  if (genre.includes("comedy") || subGenre.includes("comedy")) return "Comedy";
-  if (segment.includes("music")) return "Music";
-  if (segment.includes("sport")) return "Sports";
-  if (segment.includes("arts") || segment.includes("theatre") || segment.includes("theater")) return "Arts & Theater";
-  if (segment.includes("family") || genre.includes("family")) return "Family";
-  return "Other";
+interface SearchQueryData {
+  total?: number;
+  events?: TicketmasterWebsiteEvent[];
 }
 
-function formatDate(localDate?: string) {
-  if (!localDate) return "Date TBA";
-  const date = new Date(`${localDate}T12:00:00.000Z`);
-  if (Number.isNaN(date.getTime())) return localDate;
-  return new Intl.DateTimeFormat("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(date);
+interface ApiQuery {
+  endpointName?: string;
+  data?: SearchQueryData;
 }
 
-function formatTime(localTime?: string, timeTBA?: boolean) {
-  if (!localTime || timeTBA) return "Time TBA";
-  const [hours = "0", minutes = "0"] = localTime.split(":");
-  const date = new Date(Date.UTC(2020, 0, 1, Number(hours), Number(minutes)));
-  if (Number.isNaN(date.getTime())) return localTime;
-  return new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone: "UTC" }).format(date);
-}
-
-function bestImage(images: TicketmasterImage[] = []) {
-  return [...images]
-    .filter((image) => image.url)
-    .sort((left, right) => {
-      const ratioScore = Number(right.ratio === "16_9") - Number(left.ratio === "16_9");
-      return ratioScore || (right.width ?? 0) - (left.width ?? 0);
-    })[0]?.url;
-}
+const categoryIds: Record<string, EventClassification> = {
+  KZFzniwnSyZfZ7v7nJ: "Music",
+  KZFzniwnSyZfZ7v7nE: "Sports",
+  KZFzniwnSyZfZ7v7na: "Arts & Theater",
+  KZFzniwnSyZfZ7v7n1: "Other",
+};
 
 function secureUrl(value?: string) {
   if (!value) return undefined;
@@ -103,78 +60,128 @@ function secureUrl(value?: string) {
   }
 }
 
-function statusLabel(code?: string) {
-  const labels: Record<string, string> = {
-    onsale: "On sale",
-    offsale: "Off sale",
-    canceled: "Canceled",
-    postponed: "Postponed",
-    rescheduled: "Rescheduled",
-  };
-  return code ? labels[code.toLowerCase()] ?? code : undefined;
+function classificationFor(event: TicketmasterWebsiteEvent): EventClassification {
+  const category = event.majorCategory?.id ? categoryIds[event.majorCategory.id] : undefined;
+  if (category) return category;
+  const title = event.title?.toLowerCase() ?? "";
+  if (title.includes("comedy")) return "Comedy";
+  return "Other";
 }
 
-export function mapTicketmasterEvent(event: TicketmasterApiEvent): TrackedEvent | undefined {
-  if (!event.id || !event.name) return undefined;
-  const venue = event._embedded?.venues?.[0];
-  const classification = event.classifications?.[0];
-  const start = event.dates?.start;
-  const addressParts = [
-    venue?.address?.line1,
-    venue?.address?.line2,
-    [venue?.city?.name, venue?.state?.stateCode, venue?.postalCode].filter(Boolean).join(", "),
-    venue?.country?.countryCode,
-  ].filter(Boolean);
+function formatDateTime(startsAt?: string, timeZone?: string) {
+  if (!startsAt) return { dateLabel: "Date TBA", timeLabel: "Time TBA" };
+  const date = new Date(startsAt);
+  if (Number.isNaN(date.getTime())) return { dateLabel: startsAt, timeLabel: "Time TBA" };
+  const zone = timeZone || "UTC";
+  try {
+    return {
+      dateLabel: new Intl.DateTimeFormat("en-US", {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        timeZone: zone,
+      }).format(date),
+      timeLabel: new Intl.DateTimeFormat("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+        timeZone: zone,
+      }).format(date),
+    };
+  } catch {
+    return {
+      dateLabel: new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeZone: "UTC" }).format(date),
+      timeLabel: new Intl.DateTimeFormat("en-US", { timeStyle: "short", timeZone: "UTC" }).format(date),
+    };
+  }
+}
 
+function bestImage(event: TicketmasterWebsiteEvent) {
+  const urls = event.artists?.flatMap((artist) => Object.values(artist.imageUrls ?? {}).filter((url): url is string => Boolean(url))) ?? [];
+  return secureUrl(urls.find((url) => url.includes("16_9")) ?? urls[0]);
+}
+
+function statusLabel(event: TicketmasterWebsiteEvent) {
+  if (event.cancelled) return "Canceled";
+  if (event.postponed) return "Postponed";
+  if (event.rescheduled) return "Rescheduled";
+  if (event.soldOut) return "Sold out";
+  return "On sale";
+}
+
+function mapWebsiteEvent(event: TicketmasterWebsiteEvent): TrackedEvent | undefined {
+  if (!event.id || !event.title || !event.url) return undefined;
+  const dateTime = formatDateTime(event.dates?.startDate, event.timeZone);
+  const venue = event.venue;
   return {
     id: event.id,
-    name: event.name,
-    classification: normalizeClassification(event),
-    genre: classification?.genre?.name,
-    startsAt: start?.dateTime ?? (start?.localDate ? `${start.localDate}${start.localTime ? `T${start.localTime}` : ""}` : undefined),
-    dateLabel: start?.dateTBD ? "Date TBA" : formatDate(start?.localDate),
-    timeLabel: formatTime(start?.localTime, start?.timeTBA),
+    name: event.title,
+    classification: classificationFor(event),
+    startsAt: event.dates?.startDate,
+    ...dateTime,
     venue: {
       name: venue?.name ?? "Venue TBA",
-      city: venue?.city?.name ?? "",
-      region: venue?.state?.stateCode ?? venue?.country?.countryCode ?? "",
-      timezone: venue?.timezone ?? "",
+      city: venue?.city ?? "",
+      region: venue?.state ?? venue?.countryCode ?? "",
+      timezone: event.timeZone ?? "",
     },
-    venueAddress: addressParts.join(" · "),
-    imageUrl: secureUrl(bestImage(event.images)),
-    seatMapUrl: secureUrl(event.seatmap?.staticUrl),
+    venueAddress: [venue?.addressLineOne, [venue?.city, venue?.state, venue?.code].filter(Boolean).join(", ")]
+      .filter(Boolean)
+      .join(" · "),
+    imageUrl: bestImage(event),
+    seatMapUrl: secureUrl(event.seatmapUrl),
     ticketmasterUrl: secureUrl(event.url) ?? "https://www.ticketmaster.com/",
-    status: statusLabel(event.dates?.status?.code),
+    status: statusLabel(event),
+    attractions: (event.artists ?? []).flatMap((artist) => artist.name ? [artist.name] : []),
   };
 }
 
-export function mapTicketmasterEventDetail(event: TicketmasterApiEvent): TrackedEventDetail | undefined {
-  const summary = mapTicketmasterEvent(event);
-  if (!summary) return undefined;
-
-  return {
-    ...summary,
-    description: event.info,
-    importantInfo: [event.pleaseNote].filter((value): value is string => Boolean(value)),
-    attractions: (event._embedded?.attractions ?? []).flatMap((attraction) => attraction.name ? [attraction.name] : []),
-    accessibilityInfo: event.accessibility?.info,
-  };
+function scriptContentsById(html: string, id: string) {
+  const marker = `id="${id}"`;
+  const markerIndex = html.indexOf(marker);
+  if (markerIndex < 0) return undefined;
+  const start = html.indexOf(">", markerIndex);
+  const end = html.indexOf("</script>", start);
+  return start >= 0 && end > start ? html.slice(start + 1, end) : undefined;
 }
 
-export interface TicketmasterApiSearchPayload {
-  _embedded?: { events?: TicketmasterApiEvent[] };
-  page?: { totalElements?: number; number?: number; totalPages?: number };
+function findSearchData(value: unknown, depth = 0): SearchQueryData | undefined {
+  if (!value || typeof value !== "object" || depth > 8) return undefined;
+  const record = value as Record<string, unknown>;
+  if (record.endpointName === "searchEvents" && record.data && typeof record.data === "object") {
+    return record.data as SearchQueryData;
+  }
+  for (const child of Object.values(record)) {
+    const result = findSearchData(child, depth + 1);
+    if (result) return result;
+  }
+  return undefined;
 }
 
-export function mapTicketmasterSearch(payload: TicketmasterApiSearchPayload): TicketmasterSearchResponse {
-  const items = (payload._embedded?.events ?? []).flatMap((event) => {
-    const mapped = mapTicketmasterEvent(event);
+/** Parse the public page state embedded in Ticketmaster search-result HTML. */
+export function mapTicketmasterSearchPage(html: string, page = 0): TicketmasterSearchResponse {
+  const source = scriptContentsById(html, "__NEXT_DATA__");
+  if (!source) throw new Error("Ticketmaster did not publish search data in this page.");
+  const payload = JSON.parse(source) as unknown;
+  const data = findSearchData(payload);
+  if (!data) throw new Error("Ticketmaster search data could not be read.");
+  const items = (data.events ?? []).flatMap((event) => {
+    const mapped = mapWebsiteEvent(event);
     return mapped ? [mapped] : [];
   });
+  const total = data.total ?? items.length;
   return {
     items,
-    total: payload.page?.totalElements ?? items.length,
-    page: payload.page?.number ?? 0,
-    pageCount: payload.page?.totalPages ?? (items.length ? 1 : 0),
+    total,
+    page,
+    pageCount: Math.ceil(total / Math.max(items.length, 20)),
+  };
+}
+
+export function asTicketmasterDetail(event: TrackedEvent): TrackedEventDetail {
+  return {
+    ...event,
+    importantInfo: [],
+    attractions: event.attractions ?? [],
   };
 }

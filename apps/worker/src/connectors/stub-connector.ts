@@ -5,6 +5,8 @@ const labels: Record<Marketplace, { label: string; color: string }> = {
   ticketmaster: { label: "Ticketmaster", color: "#076cdf" },
   stubhub: { label: "StubHub", color: "#5b34da" },
   seatgeek: { label: "SeatGeek", color: "#20a775" },
+  tickpick: { label: "TickPick", color: "#f35321" },
+  gametime: { label: "Gametime", color: "#f04e98" },
   "vivid-seats": { label: "Vivid Seats", color: "#ec1754" },
 };
 

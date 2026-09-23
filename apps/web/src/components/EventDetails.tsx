@@ -1,6 +1,6 @@
 "use client";
 
-import type { TrackedEvent, TrackedEventDetail } from "@ticket-hub/contracts";
+import type { CrawledPriceSnapshot, TrackedEvent, TrackedEventDetail } from "@ticket-hub/contracts";
 import {
   ArrowLeft,
   CalendarDays,
@@ -24,7 +24,7 @@ type DisplayEvent = TrackedEvent | TrackedEventDetail;
 
 function detailValues(event: DisplayEvent) {
   if ("importantInfo" in event) return event;
-  return { ...event, importantInfo: [], attractions: [] };
+  return { ...event, importantInfo: [], attractions: event.attractions ?? [] };
 }
 
 export function EventDetails({ eventId }: { eventId: string }) {
@@ -32,6 +32,8 @@ export function EventDetails({ eventId }: { eventId: string }) {
   const [event, setEvent] = useState<DisplayEvent>();
   const [missing, setMissing] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadingPrices, setLoadingPrices] = useState(false);
+  const [prices, setPrices] = useState<CrawledPriceSnapshot>();
   const [warning, setWarning] = useState<string>();
   const [shareLabel, setShareLabel] = useState("Share");
 
@@ -43,22 +45,56 @@ export function EventDetails({ eventId }: { eventId: string }) {
       setLoading(false);
       return;
     }
+    const savedEvent = saved;
 
-    setEvent(saved);
-    fetch(`/api/ticketmaster/events/${encodeURIComponent(eventId)}`)
-      .then(async (response) => {
+    setEvent(savedEvent);
+    let cancelled = false;
+
+    async function loadEvent() {
+      let priceEvent: TrackedEvent = savedEvent;
+      try {
+        const params = new URLSearchParams({ name: savedEvent.name });
+        const response = await fetch(`/api/ticketmaster/events/${encodeURIComponent(eventId)}?${params}`);
         const payload = await response.json() as TrackedEventDetail | { message?: string };
         if (!response.ok) throw new Error("message" in payload ? payload.message : undefined);
         const detail = payload as TrackedEventDetail;
+        priceEvent = detail;
+        if (cancelled) return;
         setEvent(detail);
         writeTrackedEvents(window.localStorage, tracked.map((candidate) => candidate.id === detail.id ? detail : candidate));
-      })
-      .catch((caught: unknown) => {
+      } catch (caught) {
+        if (cancelled) return;
         setWarning(caught instanceof Error && caught.message
           ? `${caught.message} Showing your saved event information.`
           : "Could not refresh this event. Showing your saved event information.");
-      })
-      .finally(() => setLoading(false));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+
+      if (cancelled) return;
+      setLoadingPrices(true);
+      try {
+        const response = await fetch("/api/prices", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(priceEvent),
+        });
+        const payload = await response.json() as CrawledPriceSnapshot | { message?: string };
+        if (!response.ok) throw new Error("message" in payload ? payload.message : undefined);
+        if (!cancelled) setPrices(payload as CrawledPriceSnapshot);
+      } catch (caught) {
+        if (!cancelled) {
+          setWarning((current) => current ?? (caught instanceof Error && caught.message
+            ? `Marketplace prices could not be loaded: ${caught.message}`
+            : "Marketplace prices could not be loaded."));
+        }
+      } finally {
+        if (!cancelled) setLoadingPrices(false);
+      }
+    }
+
+    void loadEvent();
+    return () => { cancelled = true; };
   }, [eventId]);
 
   function removeEvent() {
@@ -131,7 +167,7 @@ export function EventDetails({ eventId }: { eventId: string }) {
       </div>
 
       {warning && <div className="eventWarning"><Info size={15} /> {warning}</div>}
-      {loading && <div className="eventRefreshing">Refreshing event information from Ticketmaster…</div>}
+      {loading && <div className="eventRefreshing">Crawling event information from Ticketmaster…</div>}
 
       <main className="detailContent pageShell">
         <section className="seatMapSection">
@@ -140,9 +176,15 @@ export function EventDetails({ eventId }: { eventId: string }) {
               <p className="sectionKicker">Seat allocations</p>
               <h2>Venue seat map</h2>
             </div>
-            <span className="mapSource">Provided by Ticketmaster</span>
+            <span className="mapSource">Ticketmaster layout · six price sources</span>
           </div>
-          <SeatMapViewer imageUrl={event.seatMapUrl} eventName={event.name} ticketmasterUrl={event.ticketmasterUrl} />
+          <SeatMapViewer
+            imageUrl={event.seatMapUrl}
+            eventName={event.name}
+            ticketmasterUrl={event.ticketmasterUrl}
+            prices={prices}
+            loadingPrices={loadingPrices}
+          />
         </section>
 
         <aside className="eventInfoPanel">

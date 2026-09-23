@@ -2,6 +2,8 @@ export type Marketplace =
   | "ticketmaster"
   | "stubhub"
   | "seatgeek"
+  | "tickpick"
+  | "gametime"
   | "vivid-seats";
 
 export type EventCategory = "Music" | "Sports" | "Arts" | "Comedy";
@@ -29,6 +31,7 @@ export interface TrackedEvent {
   seatMapUrl?: string;
   ticketmasterUrl: string;
   status?: string;
+  attractions?: string[];
 }
 
 export interface TrackedEventDetail extends TrackedEvent {
@@ -78,6 +81,39 @@ export interface TicketOffer {
   feesIncluded: boolean;
   deepLink: string;
   capturedAt: string;
+}
+
+export type MarketplaceCrawlStatus =
+  | "fresh"
+  | "unavailable"
+  | "blocked"
+  | "not-found"
+  | "error";
+
+export interface MarketplaceCrawlResult {
+  marketplace: Marketplace;
+  label: string;
+  color: string;
+  status: MarketplaceCrawlStatus;
+  capturedAt: string;
+  sourceUrl?: string;
+  message?: string;
+  offers: TicketOffer[];
+}
+
+/** Percentage coordinates taken from Ticketmaster's published map geometry. */
+export interface SeatMapSectionPosition {
+  section: string;
+  xPercent: number;
+  yPercent: number;
+}
+
+export interface CrawledPriceSnapshot {
+  eventId: string;
+  capturedAt: string;
+  status: "fresh" | "partial" | "unavailable";
+  sources: MarketplaceCrawlResult[];
+  sectionPositions: SeatMapSectionPosition[];
 }
 
 export interface MarketplaceQuote {
@@ -138,5 +174,7 @@ export const marketplaceLabels: Record<Marketplace, string> = {
   ticketmaster: "Ticketmaster",
   stubhub: "StubHub",
   seatgeek: "SeatGeek",
+  tickpick: "TickPick",
+  gametime: "Gametime",
   "vivid-seats": "Vivid Seats",
 };
