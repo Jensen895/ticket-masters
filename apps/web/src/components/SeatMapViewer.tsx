@@ -65,6 +65,16 @@ function sectionDistance(section: SeatMapSectionPosition) {
   return Math.hypot(section.xPercent - 50, section.yPercent - 50);
 }
 
+function seatDistance(seat: SeatMapSeatPosition) {
+  return Math.hypot(seat.xPercent - 50, seat.yPercent - 50);
+}
+
+function seatLabelCompare(left: PricedSeat, right: PricedSeat) {
+  return left.position.section.localeCompare(right.position.section, undefined, { numeric: true })
+    || left.position.row.localeCompare(right.position.row, undefined, { numeric: true })
+    || left.position.seat.localeCompare(right.position.seat, undefined, { numeric: true });
+}
+
 function zoomForSection(section: SeatMapSectionPosition) {
   if (!section.outline?.length) return SECTION_ZOOM;
   const xValues = section.outline.map((point) => point.xPercent);
@@ -136,7 +146,8 @@ export function SeatMapViewer({
       return offer ? [{ position, offer }] : [];
     });
 
-    return { sections, pricedSeats, lowestBySeat };
+    const sourceColors = new Map((prices?.sources ?? []).map((source) => [source.marketplace, source.color]));
+    return { sections, pricedSeats, lowestBySeat, sourceColors };
   }, [prices]);
 
   const selectedSection = mapData.sections.find((section) => normalizeSection(section.section) === selectedSectionKey);
@@ -145,18 +156,20 @@ export function SeatMapViewer({
     : [], [prices, selectedSectionKey]);
   const selectedSeat = mapData.pricedSeats.find((seat) => seat.position.id === selectedSeatId);
 
+  const sortedSeats = useMemo(() => [...mapData.pricedSeats].sort((left, right) => mode === "lowest"
+    ? left.offer.priceCents - right.offer.priceCents
+      || seatDistance(left.position) - seatDistance(right.position)
+      || seatLabelCompare(left, right)
+    : seatDistance(left.position) - seatDistance(right.position)
+      || left.offer.priceCents - right.offer.priceCents
+      || seatLabelCompare(left, right)), [mapData.pricedSeats, mode]);
+
   const recommendation = useMemo(() => {
-    if (mapData.pricedSeats.length) {
-      return [...mapData.pricedSeats].sort((left, right) => mode === "lowest"
-        ? left.offer.priceCents - right.offer.priceCents
-        : Math.hypot(left.position.xPercent - 50, left.position.yPercent - 50)
-          - Math.hypot(right.position.xPercent - 50, right.position.yPercent - 50)
-          || left.offer.priceCents - right.offer.priceCents)[0];
-    }
+    if (sortedSeats.length) return sortedSeats[0];
     return [...mapData.sections].filter((section) => section.offer).sort((left, right) => mode === "lowest"
       ? left.offer!.priceCents - right.offer!.priceCents
       : sectionDistance(left) - sectionDistance(right) || left.offer!.priceCents - right.offer!.priceCents)[0];
-  }, [mapData, mode]);
+  }, [mapData.sections, mode, sortedSeats]);
 
   function setZoomLevel(next: number) {
     const clamped = clampZoom(next);
@@ -182,6 +195,23 @@ export function SeatMapViewer({
       setOffset({
         x: -(section.xPercent / 100 - .5) * mapElement.offsetWidth * targetZoom,
         y: -(section.yPercent / 100 - .5) * mapElement.offsetHeight * targetZoom,
+      });
+    }
+  }
+
+  function focusSeat(seat: PricedSeat) {
+    if (!imageUrl) return;
+    const section = mapData.sections.find((candidate) => normalizeSection(candidate.section) === normalizeSection(seat.position.section));
+    if (!section) return;
+    const mapElement = map.current;
+    const targetZoom = zoomForSection(section);
+    setSelectedSectionKey(normalizeSection(section.section));
+    setSelectedSeatId(seat.position.id);
+    setZoom(targetZoom);
+    if (mapElement) {
+      setOffset({
+        x: -(seat.position.xPercent / 100 - .5) * mapElement.offsetWidth * targetZoom,
+        y: -(seat.position.yPercent / 100 - .5) * mapElement.offsetHeight * targetZoom,
       });
     }
   }
@@ -244,30 +274,28 @@ export function SeatMapViewer({
 
   return (
     <div className="seatMapViewer">
-      <div className="seatMapMode" aria-label="Seat recommendation">
-        <button className={mode === "lowest" ? "active" : ""} type="button" onClick={() => setMode("lowest")}>Lowest price</button>
-        <button className={mode === "best" ? "active" : ""} type="button" title="Prioritizes available seats closest to the center of the venue map" onClick={() => setMode("best")}>Best seat</button>
-      </div>
-      <div className="seatMapControls" aria-label="Seat map zoom controls">
-        <button type="button" onClick={() => setZoomLevel(zoom + ZOOM_STEP)} disabled={!imageUrl || zoom >= MAX_ZOOM} aria-label="Zoom in"><Plus size={19} /></button>
-        <span aria-live="polite">{Math.round(zoom * 100)}%</span>
-        <button type="button" onClick={() => setZoomLevel(zoom - ZOOM_STEP)} disabled={!imageUrl || zoom <= MIN_ZOOM} aria-label="Zoom out"><Minus size={19} /></button>
-        <button type="button" onClick={reset} disabled={!imageUrl || (zoom === MIN_ZOOM && !selectedSectionKey)} aria-label="Reset seat map"><LocateFixed size={18} /></button>
-      </div>
-      <div
-        className={`seatMapCanvas ${zoom > MIN_ZOOM ? "canPan" : ""}`}
-        tabIndex={0}
-        role="application"
-        aria-label={imageUrl ? `Interactive Ticketmaster seat map and lowest marketplace prices for ${eventName}` : `Seat map unavailable for ${eventName}`}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={stopDragging}
-        onPointerCancel={stopDragging}
-        onKeyDown={onKeyDown}
-        onWheel={onWheel}
-      >
-        {imageUrl ? (
-          <div ref={map} className="seatMapTransform" style={mapStyle}>
+      <div className="seatMapWorkspace">
+        <div className="seatMapStage">
+          <div className="seatMapControls" aria-label="Seat map zoom controls">
+            <button type="button" onClick={() => setZoomLevel(zoom + ZOOM_STEP)} disabled={!imageUrl || zoom >= MAX_ZOOM} aria-label="Zoom in"><Plus size={19} /></button>
+            <span aria-live="polite">{Math.round(zoom * 100)}%</span>
+            <button type="button" onClick={() => setZoomLevel(zoom - ZOOM_STEP)} disabled={!imageUrl || zoom <= MIN_ZOOM} aria-label="Zoom out"><Minus size={19} /></button>
+            <button type="button" onClick={reset} disabled={!imageUrl || (zoom === MIN_ZOOM && !selectedSectionKey)} aria-label="Reset seat map"><LocateFixed size={18} /></button>
+          </div>
+          <div
+            className={`seatMapCanvas ${zoom > MIN_ZOOM ? "canPan" : ""}`}
+            tabIndex={0}
+            role="application"
+            aria-label={imageUrl ? `Interactive Ticketmaster seat map and lowest marketplace prices for ${eventName}` : `Seat map unavailable for ${eventName}`}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={stopDragging}
+            onPointerCancel={stopDragging}
+            onKeyDown={onKeyDown}
+            onWheel={onWheel}
+          >
+            {imageUrl ? (
+              <div ref={map} className="seatMapTransform" style={mapStyle}>
             <img src={imageUrl} alt={`Ticketmaster venue seat map for ${eventName}`} draggable={false} />
 
             {!showSeatDetail && (
@@ -341,17 +369,21 @@ export function SeatMapViewer({
                     <button
                       className={`seatDot available ${selected ? "selected" : ""}`}
                       key={position.id}
-                      style={{ left: `${position.xPercent}%`, top: `${position.yPercent}%` }}
+                      style={{
+                        left: `${position.xPercent}%`,
+                        top: `${position.yPercent}%`,
+                        "--seat-source": mapData.sourceColors.get(offer.marketplace),
+                      } as CSSProperties}
                       type="button"
                       aria-label={`Section ${position.section}, row ${position.row}, seat ${position.seat}, ${money(offer.priceCents)} on ${offer.marketplaceLabel}`}
-                      title={`Row ${position.row}, seat ${position.seat} · ${money(offer.priceCents)}`}
+                      title={`Row ${position.row}, seat ${position.seat} · ${money(offer.priceCents)} on ${offer.marketplaceLabel}`}
                       onPointerDown={(event) => event.stopPropagation()}
                       onClick={(event) => {
                         event.stopPropagation();
                         if (!suppressClick.current) setSelectedSeatId(position.id);
                       }}
                     >
-                      <span>{money(offer.priceCents)}</span>
+                      <span><b>{money(offer.priceCents)}</b><small>{offer.marketplaceLabel}</small></span>
                     </button>
                   ) : (
                     <i
@@ -364,65 +396,104 @@ export function SeatMapViewer({
                 })}
               </div>
             )}
-          </div>
-        ) : (
-          <div className="seatMapUnavailable">
-            <LocateFixed size={38} />
-            <h3>Seat map not available</h3>
-            <p>Ticketmaster has not published a static seat map for this event.</p>
-            <a href={ticketmasterUrl} target="_blank" rel="noreferrer">Check Ticketmaster <ExternalLink size={15} /></a>
-          </div>
-        )}
-
-        {imageUrl && loadingPrices && !prices && (
-          <span className="priceCrawlLoading"><i /> Loading sections, seats, and prices…</span>
-        )}
-
-        {imageUrl && !selectedSection && recommendation && (
-          <button
-            className="mapRecommendation"
-            type="button"
-            onClick={() => {
-              const section = "position" in recommendation
-                ? mapData.sections.find((candidate) => normalizeSection(candidate.section) === normalizeSection(recommendation.position.section))
-                : recommendation;
-              if (section) focusSection(section);
-            }}
-          >
-            <span>{mode === "lowest" ? "Lowest found" : "Best available"}</span>
-            <strong>{recommendation.offer ? money(recommendation.offer.priceCents) : "View"}</strong>
-            <small>Section {"position" in recommendation ? recommendation.position.section : recommendation.section}</small>
-          </button>
-        )}
-
-        {imageUrl && selectedSection && (
-          <div className="seatSelectionCard" aria-live="polite">
-            <button className="closeSeatSelection" type="button" onClick={reset} aria-label="Return to all sections"><X size={17} /></button>
-            <span className="selectionEyebrow">Section {selectedSection.section}</span>
-            {selectedSeat ? (
-              <>
-                <h3>Row {selectedSeat.position.row} · Seat {selectedSeat.position.seat}</h3>
-                <div className="selectedSeatPrice"><strong>{money(selectedSeat.offer.priceCents)}</strong><span>lowest on {selectedSeat.offer.marketplaceLabel}</span></div>
-                <p>{selectedSeat.offer.feesIncluded ? "Price includes disclosed fees." : "Fees may be added by the seller."}</p>
-                <a href={selectedSeat.offer.deepLink} target="_blank" rel="noreferrer">
-                  Get this seat on {selectedSeat.offer.marketplaceLabel} <ExternalLink size={15} />
-                </a>
-              </>
+              </div>
             ) : (
-              <>
-                <h3><Armchair size={17} /> Choose an available seat</h3>
-                <p>{sectionSeats.length
-                  ? `${sectionSeats.length} seat locations shown. Priced dots are listings whose exact seat was publicly disclosed.`
-                  : "Ticketmaster did not publish individual seat coordinates for this section."}</p>
-                {selectedSection.offer && (
-                  <a href={selectedSection.offer.deepLink} target="_blank" rel="noreferrer">
-                    Section listings from {money(selectedSection.offer.priceCents)} <ExternalLink size={15} />
-                  </a>
+              <div className="seatMapUnavailable">
+                <LocateFixed size={38} />
+                <h3>Seat map not available</h3>
+                <p>Ticketmaster has not published a static seat map for this event.</p>
+                <a href={ticketmasterUrl} target="_blank" rel="noreferrer">Check Ticketmaster <ExternalLink size={15} /></a>
+              </div>
+            )}
+
+            {imageUrl && loadingPrices && !prices && (
+              <span className="priceCrawlLoading"><i /> Loading sections, seats, and prices…</span>
+            )}
+
+            {imageUrl && !selectedSection && recommendation && (
+              <button
+                className="mapRecommendation"
+                type="button"
+                onClick={() => {
+                  if ("position" in recommendation) focusSeat(recommendation);
+                  else focusSection(recommendation);
+                }}
+              >
+                <span>{mode === "lowest" ? "Lowest found" : "Best available"}</span>
+                <strong>{recommendation.offer ? money(recommendation.offer.priceCents) : "View"}</strong>
+                <small>Section {"position" in recommendation ? recommendation.position.section : recommendation.section}</small>
+              </button>
+            )}
+
+            {imageUrl && selectedSection && (
+              <div className="seatSelectionCard" aria-live="polite">
+                <button className="closeSeatSelection" type="button" onClick={reset} aria-label="Return to all sections"><X size={17} /></button>
+                <span className="selectionEyebrow">Section {selectedSection.section}</span>
+                {selectedSeat ? (
+                  <>
+                    <h3>Row {selectedSeat.position.row} · Seat {selectedSeat.position.seat}</h3>
+                    <div className="selectedSeatPrice"><strong>{money(selectedSeat.offer.priceCents)}</strong><span>lowest on {selectedSeat.offer.marketplaceLabel}</span></div>
+                    <p>{selectedSeat.offer.feesIncluded ? "Price includes disclosed fees." : "Fees may be added by the seller."}</p>
+                    <a href={selectedSeat.offer.deepLink} target="_blank" rel="noreferrer">
+                      Get this seat on {selectedSeat.offer.marketplaceLabel} <ExternalLink size={15} />
+                    </a>
+                  </>
+                ) : (
+                  <>
+                    <h3><Armchair size={17} /> Choose an available seat</h3>
+                    <p>{sectionSeats.length
+                      ? `${sectionSeats.length} seat locations shown. Priced dots are listings whose exact seat was publicly disclosed.`
+                      : "Ticketmaster did not publish individual seat coordinates for this section."}</p>
+                    {selectedSection.offer && (
+                      <a href={selectedSection.offer.deepLink} target="_blank" rel="noreferrer">
+                        Section listings from {money(selectedSection.offer.priceCents)} <ExternalLink size={15} />
+                      </a>
+                    )}
+                  </>
                 )}
-              </>
+              </div>
             )}
           </div>
-        )}
+        </div>
+
+        <aside className="seatPricePanel" aria-label="Lowest marketplace price by exact seat">
+          <div className="seatPriceHeading">
+            <div>
+              <span>Available seats</span>
+              <h3>Prices by seat</h3>
+            </div>
+            <strong>{sortedSeats.length.toLocaleString()}</strong>
+          </div>
+          <div className="seatPriceSort" role="group" aria-label="Sort seat prices">
+            <button className={mode === "lowest" ? "active" : ""} type="button" onClick={() => setMode("lowest")}>Lowest price</button>
+            <button className={mode === "best" ? "active" : ""} type="button" title="Sorts available seats by distance from the center of the venue map" onClick={() => setMode("best")}>Best position</button>
+          </div>
+          {loadingPrices && !prices ? (
+            <div className="seatPriceEmpty"><i /> Finding the lowest price for each seat…</div>
+          ) : sortedSeats.length ? (
+            <ol className="seatPriceList">
+              {sortedSeats.map((seat, index) => (
+                <li className={seat.position.id === selectedSeatId ? "selected" : ""} key={seat.position.id}>
+                  <button type="button" onClick={() => focusSeat(seat)} disabled={!imageUrl} aria-label={`Show section ${seat.position.section}, row ${seat.position.row}, seat ${seat.position.seat} on the map`}>
+                    {index === 0 && <small>{mode === "lowest" ? "Lowest price" : "Best position"}</small>}
+                    <strong>Section {seat.position.section}</strong>
+                    <span>Row {seat.position.row} · Seat {seat.position.seat}</span>
+                  </button>
+                  <a href={seat.offer.deepLink} target="_blank" rel="noreferrer" aria-label={`View seat ${seat.position.seat} on ${seat.offer.marketplaceLabel}`}>
+                    <strong>{money(seat.offer.priceCents)}</strong>
+                    <span><i style={{ background: mapData.sourceColors.get(seat.offer.marketplace) }} />{seat.offer.marketplaceLabel}<ExternalLink size={12} /></span>
+                  </a>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <div className="seatPriceEmpty">
+              <Armchair size={24} />
+              <strong>No exact-seat prices found</strong>
+              <span>Some marketplaces publish only a section or row, so those prices stay on the map.</span>
+            </div>
+          )}
+        </aside>
       </div>
       {imageUrl && prices && (
         <div className="mapMarketplaceStrip" aria-label="Resale platform availability">
