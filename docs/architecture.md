@@ -44,3 +44,21 @@ Listing money is stored as integer cents. A nested public `total` is marked fee-
 ## Persistence and scaling path
 
 The current crawl cache is intentionally process-local for a single private instance. The existing Fastify, worker, Redis, and PostgreSQL projects remain a path to durable history and background refreshes. A hosted or multi-user deployment should move crawling to the worker, persist source-event mappings, add source-specific rate limits, and review each marketplace’s current terms and robots policy before enabling it.
+
+## Price alerts
+
+Each tracked event has its own price-drop alert panel (`PriceAlertManager`) below the seat map. Two alert scopes are supported:
+
+- `event-lowest`: watches the cheapest offer across all six marketplaces for the event.
+- `sections`: watches a user-selected set of one or more venue sections; each section keeps an independent baseline.
+
+Alerts and their notifications persist in browser local storage (`ticket-masters:price-alerts:v1` and `ticket-masters:price-alert-notifications:v1`), alongside tracked events. Every fresh price snapshot is evaluated exactly once per event (`evaluatePriceAlerts` in `apps/web/src/lib/price-alerts.ts`):
+
+- An alert without a baseline adopts the current price and does not notify.
+- A notification fires only when the current price drops below the baseline, satisfies the optional target-price ceiling and minimum-drop floor, and the alert is enabled.
+- Baselines ratchet down only when a notification fires, so a reported drop is the total saving since the last notification (or alert creation).
+- One `sections` alert produces at most one notification per check, listing every watched section that dropped.
+
+Users are told about drops through an in-app banner, a persisted per-event drop history with unread counts, and an optional browser `Notification` (opt-in per browser). Checks run whenever prices load — via “Check prices now” or the optional 5/15/30-minute auto re-check while the event page stays open.
+
+A hosted deployment should move evaluation into the worker (evaluate on each published snapshot, persist alerts/notifications in PostgreSQL, and deliver push/email), reusing the same `PriceAlert` contracts and trigger semantics.

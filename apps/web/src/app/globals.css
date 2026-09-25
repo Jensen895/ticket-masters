@@ -996,6 +996,193 @@ button { color: inherit; }
   .mapRecommendation { top: 109px; }
 }
 
+.alertSectionWrap { padding-bottom: 40px; }
+.priceAlerts {
+  margin-top: 22px;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 16px;
+}
+.alertHeading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.alertHeading .sectionKicker { margin-bottom: 6px; }
+.alertHeading h2 { margin: 0; color: var(--navy); font-size: 22px; letter-spacing: -.5px; display: flex; align-items: center; gap: 10px; }
+.alertUnreadBadge { padding: 3px 10px; border-radius: 20px; color: #fff; background: var(--blue); font-size: 11px; font-weight: 800; }
+.alertHeaderActions { display: flex; align-items: center; gap: 10px; }
+.browserNotifStatus { display: inline-flex; align-items: center; gap: 6px; color: var(--green); font-size: 12px; font-weight: 700; }
+.browserNotifStatus.muted { color: var(--muted); }
+.alertFreshBanner {
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-radius: 10px;
+  border: 1px solid #bfe3d2;
+  color: #0b5c3f;
+  background: #e9f8f1;
+}
+.alertFreshBanner svg { flex: none; }
+.alertFreshBanner > div { display: grid; gap: 2px; font-size: 12px; }
+.alertFreshBanner strong { font-size: 13px; }
+.alertFreshBanner > button { margin-left: auto; border: 0; background: none; cursor: pointer; color: inherit; }
+.alertRefreshRow { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.alertRefreshButton {
+  padding: 10px 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 8px;
+  color: #fff;
+  background: var(--blue);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 800;
+}
+.alertRefreshButton:hover:not(:disabled) { background: var(--blue-dark); }
+.alertRefreshButton:disabled { opacity: .65; cursor: default; }
+.spinning { animation: spin .9s linear infinite; }
+.alertAutoRefresh { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.alertAutoRefresh select { padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: #fff; }
+.alertRefreshHint { color: var(--muted); font-size: 11px; }
+.alertCreateGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.alertCreateCard {
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--soft);
+}
+.alertCreateCard h3 { margin: 0 0 4px; font-size: 15px; }
+.alertCreateCard p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.alertCreateCard p strong { color: var(--ink); }
+.alertMuted { color: var(--muted); font-size: 12px; }
+.alertOptionRow { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.alertOptionRow label { display: grid; gap: 5px; color: var(--muted); font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
+.alertOptionRow input, .alertSectionFilter {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  outline: none;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.alertCreateButton {
+  padding: 11px;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 8px;
+  color: #fff;
+  background: var(--navy-2);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 800;
+}
+.alertCreateButton:hover:not(:disabled) { background: var(--navy); }
+.alertCreateButton:disabled { opacity: .55; cursor: default; }
+.alertSectionList {
+  max-height: 190px;
+  overflow-y: auto;
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+.alertSectionList label {
+  padding: 7px 9px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+.alertSectionList label:hover { background: var(--soft); }
+.alertSectionList label.selected { background: #e8f2fe; }
+.alertSectionList input { accent-color: var(--blue); }
+.alertSectionLabel { flex: 1; }
+.alertSectionPrice { color: var(--muted); font-size: 12px; font-weight: 700; }
+.alertSectionEmpty { padding: 10px; color: var(--muted); font-size: 12px; }
+.alertSectionBulk { display: flex; align-items: center; gap: 10px; }
+.alertSectionBulk button { border: 0; background: none; padding: 0; color: var(--blue); cursor: pointer; font-size: 12px; font-weight: 700; }
+.alertSectionBulk span { margin-left: auto; color: var(--muted); font-size: 11px; }
+.alertManageGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.alertListPanel { padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: #fff; display: grid; gap: 10px; align-content: start; }
+.alertPanelHeading { display: flex; align-items: center; justify-content: space-between; }
+.alertPanelHeading h3 { margin: 0; font-size: 14px; }
+.alertPanelHeading span { padding: 2px 9px; border-radius: 12px; background: var(--soft); color: var(--muted); font-size: 11px; font-weight: 800; }
+.alertList, .alertHistoryList { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.alertList > li, .alertHistoryList > li {
+  padding: 11px 12px;
+  display: flex;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+.alertHistoryList > li.unread { border-color: #9cc7f7; background: #f2f8ff; }
+.alertList > li.paused { opacity: .72; }
+.alertListMain, .alertHistoryMain { flex: 1; display: grid; gap: 3px; font-size: 12px; }
+.alertListMain strong, .alertHistoryMain strong { font-size: 13px; }
+.alertListMain .alertBaseline, .alertListMain .alertCurrent, .alertHistoryMeta { color: var(--muted); }
+.alertStatusText { color: var(--blue-dark); font-weight: 700; font-size: 11px; }
+.alertSectionChips { display: flex; flex-wrap: wrap; gap: 5px; }
+.alertSectionChips i {
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: var(--soft);
+  color: var(--navy-2);
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 800;
+}
+.alertListActions { display: flex; align-items: flex-start; gap: 4px; }
+.alertListActions button, .alertListActions a {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.alertListActions button:hover, .alertListActions a:hover { background: var(--soft); color: var(--ink); }
+.alertHistoryActions { display: flex; gap: 12px; }
+.alertHistoryActions button {
+  border: 0;
+  background: none;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--blue);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+@media (max-width: 950px) {
+  .alertCreateGrid, .alertManageGrid { grid-template-columns: 1fr; }
+}
+
 @media (max-width: 480px) {
   .searchResultCard { grid-template-columns: 90px 1fr; padding: 9px; }
   .searchResultBody h3 { font-size: 14px; }

@@ -10,6 +10,7 @@ A private, read-only event price comparison board. It crawls public marketplace 
 4. Reads Ticketmaster’s public section outlines and exact seat coordinates, then aligns normalized marketplace listings to the same map.
 5. Lets the user click a section to zoom into its rows and seats, or pan/zoom the full map.
 6. Deduplicates the same section/row/seat across marketplaces, shows only its lowest public price, and links that seat to the winning marketplace. Prices are display-only.
+7. Offers per-event price-drop alerts: watch the event's lowest price or any set of sections, and get notified in-app (optionally via browser notification) when prices fall.
 
 The collector uses only publicly returned HTML, JSON-LD, embedded page state, and Ticketmaster’s published map geometry. It does not sign in, solve challenges, spoof sessions, or bypass access controls. A marketplace that blocks plain server requests or does not expose listing data is shown as unavailable (`—`). Site markup changes can require parser maintenance.
 

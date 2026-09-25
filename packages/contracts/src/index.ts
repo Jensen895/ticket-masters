@@ -195,6 +195,71 @@ export interface RefreshEventJob {
   reason: "user" | "stale-cache" | "scheduled";
 }
 
+export type PriceAlertScope = "event-lowest" | "sections";
+
+/**
+ * A user-created price-drop watch for one tracked event.
+ *
+ * - `event-lowest` triggers when the cheapest offer across all marketplaces
+ *   drops below its baseline.
+ * - `sections` triggers when any of the watched sections drops below its own
+ *   baseline. One alert can watch multiple sections; each section keeps an
+ *   independent baseline keyed by normalized section label.
+ *
+ * Baselines ratchet down only when a notification fires, so a reported drop is
+ * always the total saving since the last notification (or alert creation).
+ */
+export interface PriceAlert {
+  id: string;
+  eventId: string;
+  scope: PriceAlertScope;
+  /** Display labels of watched sections (scope === "sections"). */
+  sections: string[];
+  /** Per-section baselines keyed by normalized section label. */
+  sectionBaselines: Record<string, number>;
+  /** Baseline for scope === "event-lowest". */
+  baselineCents?: number;
+  /** Optional ceiling: only notify when the current price is at or below this. */
+  targetCents?: number;
+  /** Optional floor on the drop size: ignore drops smaller than this. */
+  minDropCents?: number;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  lastCheckedAt?: string;
+  lastTriggeredAt?: string;
+}
+
+export interface PriceAlertSectionDrop {
+  section: string;
+  previousCents: number;
+  currentCents: number;
+  dropCents: number;
+  marketplace?: string;
+  deepLink?: string;
+}
+
+/** A persisted record of one fired price-drop alert. */
+export interface PriceAlertNotification {
+  id: string;
+  eventId: string;
+  alertId: string;
+  scope: PriceAlertScope;
+  title: string;
+  message: string;
+  previousCents: number;
+  currentCents: number;
+  dropCents: number;
+  dropPercent: number;
+  sections: string[];
+  sectionDrops: PriceAlertSectionDrop[];
+  marketplace?: string;
+  deepLink?: string;
+  capturedAt: string;
+  createdAt: string;
+  read: boolean;
+}
+
 export const marketplaceLabels: Record<Marketplace, string> = {
   ticketmaster: "Ticketmaster",
   stubhub: "StubHub",

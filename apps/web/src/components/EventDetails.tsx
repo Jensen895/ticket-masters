@@ -15,8 +15,9 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { readTrackedEvents, writeTrackedEvents } from "@/lib/tracked-events";
+import { PriceAlertManager } from "./PriceAlertManager";
 import { SeatMapViewer } from "./SeatMapViewer";
 import { SiteHeader } from "./SiteHeader";
 
@@ -36,6 +37,32 @@ export function EventDetails({ eventId }: { eventId: string }) {
   const [prices, setPrices] = useState<CrawledPriceSnapshot>();
   const [warning, setWarning] = useState<string>();
   const [shareLabel, setShareLabel] = useState("Share");
+  const priceEventRef = useRef<TrackedEvent | undefined>(undefined);
+  const loadingPricesRef = useRef(false);
+
+  const refreshPrices = useCallback(async () => {
+    const priceEvent = priceEventRef.current;
+    if (!priceEvent || loadingPricesRef.current) return;
+    loadingPricesRef.current = true;
+    setLoadingPrices(true);
+    try {
+      const response = await fetch("/api/prices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(priceEvent),
+      });
+      const payload = await response.json() as CrawledPriceSnapshot | { message?: string };
+      if (!response.ok) throw new Error("message" in payload ? payload.message : undefined);
+      setPrices(payload as CrawledPriceSnapshot);
+    } catch (caught) {
+      setWarning((current) => current ?? (caught instanceof Error && caught.message
+        ? `Marketplace prices could not be loaded: ${caught.message}`
+        : "Marketplace prices could not be loaded."));
+    } finally {
+      loadingPricesRef.current = false;
+      setLoadingPrices(false);
+    }
+  }, []);
 
   useEffect(() => {
     const tracked = readTrackedEvents(window.localStorage);
@@ -72,30 +99,13 @@ export function EventDetails({ eventId }: { eventId: string }) {
       }
 
       if (cancelled) return;
-      setLoadingPrices(true);
-      try {
-        const response = await fetch("/api/prices", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(priceEvent),
-        });
-        const payload = await response.json() as CrawledPriceSnapshot | { message?: string };
-        if (!response.ok) throw new Error("message" in payload ? payload.message : undefined);
-        if (!cancelled) setPrices(payload as CrawledPriceSnapshot);
-      } catch (caught) {
-        if (!cancelled) {
-          setWarning((current) => current ?? (caught instanceof Error && caught.message
-            ? `Marketplace prices could not be loaded: ${caught.message}`
-            : "Marketplace prices could not be loaded."));
-        }
-      } finally {
-        if (!cancelled) setLoadingPrices(false);
-      }
+      priceEventRef.current = priceEvent;
+      await refreshPrices();
     }
 
     void loadEvent();
     return () => { cancelled = true; };
-  }, [eventId]);
+  }, [eventId, refreshPrices]);
 
   function removeEvent() {
     const remaining = readTrackedEvents(window.localStorage).filter((candidate) => candidate.id !== eventId);
@@ -211,6 +221,16 @@ export function EventDetails({ eventId }: { eventId: string }) {
           <button className="removeDetailButton" type="button" onClick={removeEvent}><Trash2 size={16} /> Remove from my events</button>
         </aside>
       </main>
+
+      <div className="pageShell alertSectionWrap">
+        <PriceAlertManager
+          eventId={eventId}
+          eventName={event.name}
+          snapshot={prices}
+          loadingPrices={loadingPrices}
+          onRefreshPrices={() => void refreshPrices()}
+        />
+      </div>
     </div>
   );
 }
