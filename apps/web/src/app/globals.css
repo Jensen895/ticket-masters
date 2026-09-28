@@ -567,7 +567,7 @@ button { color: inherit; }
 .sectionHitArea.noListings { cursor: not-allowed; }
 .sectionFocusLayer { position: absolute; z-index: 3; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .sectionFocusLayer polygon, .sectionFocusLayer path { fill: #fff; stroke: #8795a8; stroke-width: .28; vector-effect: non-scaling-stroke; }
-.sectionPriceLayer { position: absolute; z-index: 3; inset: 0; pointer-events: none; }
+.sectionPriceLayer { position: absolute; z-index: 5; inset: 0; pointer-events: none; }
 .sectionPriceMarker {
   position: absolute;
   z-index: 2;
@@ -588,8 +588,8 @@ button { color: inherit; }
   font-family: inherit;
   text-align: left;
 }
-.sectionPriceMarker:hover, .sectionPriceMarker:focus-visible { outline: 2px solid var(--blue); border-color: var(--blue); }
-.sectionPriceMarker.recommended { border-color: #15956d; box-shadow: 0 0 0 2px rgba(19,166,117,.2), 0 4px 12px rgba(18,38,68,.2); }
+.sectionPriceMarker:hover, .sectionPriceMarker:focus-visible { z-index: 20; outline: 2px solid var(--blue); border-color: var(--blue); }
+.sectionPriceMarker.recommended { z-index: 19; border-color: #15956d; box-shadow: 0 0 0 2px rgba(19,166,117,.2), 0 4px 12px rgba(18,38,68,.2); }
 .sectionPriceMarker.noListings { color: #6f7b8c; background: rgba(224,228,233,.96); box-shadow: none; }
 .sectionPriceMarker.noListings span { color: #7d8795; }
 .sectionPriceMarker strong { overflow: hidden; text-overflow: ellipsis; font-size: 7px; white-space: nowrap; }
@@ -617,15 +617,14 @@ button { color: inherit; }
   position: absolute;
   inset: 0;
   box-sizing: border-box;
-  border: .2px solid #718297;
+  border: 0;
   border-radius: 50%;
-  background: #dce4eb;
-  box-shadow: 0 .5px 1px rgba(11,29,55,.22);
+  background: #667085;
+  box-shadow: none;
+  opacity: 1;
   clip-path: circle(50% at 50% 50%);
 }
 .seatDot.available {
-  width: 1.8px;
-  height: 1.8px;
   z-index: 2;
   cursor: pointer;
   pointer-events: auto;
@@ -634,7 +633,7 @@ button { color: inherit; }
 .seatDot.available:hover, .seatDot.available:focus-visible { outline: none; z-index: 4; }
 .seatDot.available:hover::before, .seatDot.available:focus-visible::before { filter: brightness(1.16); box-shadow: none; }
 .seatDot.available.selected { z-index: 5; }
-.seatDot.available.selected::before { box-shadow: 0 0 0 .5px #fff, 0 0 0 .85px #092b53; filter: brightness(.78); }
+.seatDot.available.selected::before { box-shadow: none; }
 .seatDot span {
   position: absolute;
   left: 50%;
@@ -658,6 +657,25 @@ button { color: inherit; }
 .seatDot span b { font-size: inherit; }
 .seatDot span small { font-size: 1.45px; font-weight: 700; opacity: .9; }
 .seatDot.available:hover span, .seatDot.available:focus-visible span, .seatDot.available.selected span { opacity: 1; }
+.rowPriceMarker {
+  position: absolute;
+  z-index: 6;
+  min-width: 17px;
+  padding: 1.5px 2px;
+  display: grid;
+  justify-items: center;
+  gap: .6px;
+  transform: translate(-50%, -50%);
+  border: .35px solid var(--row-source, var(--blue));
+  border-radius: 2px;
+  color: var(--ink);
+  background: #fff;
+  box-shadow: 0 .6px 1.5px rgba(18,38,68,.2);
+  pointer-events: auto;
+  white-space: nowrap;
+}
+.rowPriceMarker b { color: var(--row-source, var(--blue)); font-size: 2.4px; line-height: 1; }
+.rowPriceMarker small { color: var(--muted); font-size: 1.45px; font-weight: 700; line-height: 1; }
 .seatPricePanel {
   height: 570px;
   min-width: 0;
@@ -738,7 +756,7 @@ button { color: inherit; }
 .seatPriceList li:first-child { border-top: 0; }
 .seatPriceList li:hover { background: #f7faff; }
 .seatPriceList li.selected { position: relative; z-index: 1; background: #edf6ff; box-shadow: inset 3px 0 var(--blue); }
-.seatPriceList li > button {
+.seatPriceList li > button, .seatPriceList li > .seatListingLocation {
   min-width: 0;
   padding: 0;
   display: grid;
@@ -747,13 +765,13 @@ button { color: inherit; }
   border: 0;
   color: var(--ink);
   background: none;
-  cursor: pointer;
   text-align: left;
 }
+.seatPriceList li > button { cursor: pointer; }
 .seatPriceList li > button:disabled { cursor: default; }
-.seatPriceList li > button small { color: #10805d; font-size: 7px; font-weight: 850; letter-spacing: .05em; text-transform: uppercase; }
-.seatPriceList li > button strong { max-width: 100%; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.seatPriceList li > button span { color: var(--muted); font-size: 9px; }
+.seatPriceList li > button small, .seatPriceList li > .seatListingLocation small { color: #10805d; font-size: 7px; font-weight: 850; letter-spacing: .05em; text-transform: uppercase; }
+.seatPriceList li > button strong, .seatPriceList li > .seatListingLocation strong { max-width: 100%; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.seatPriceList li > button span, .seatPriceList li > .seatListingLocation span { color: var(--muted); font-size: 9px; }
 .seatPriceList li > a { min-width: 76px; display: grid; justify-items: end; gap: 4px; }
 .seatPriceList li > a > strong { color: var(--ink); font-size: 15px; letter-spacing: -.2px; }
 .seatPriceList li > a > span { max-width: 105px; display: flex; align-items: center; gap: 4px; color: var(--blue); font-size: 8px; font-weight: 750; }
@@ -820,6 +838,26 @@ button { color: inherit; }
 .selectedSeatPrice span { color: var(--muted); font-size: 9px; }
 .seatSelectionCard > a { min-height: 34px; padding: 8px 10px; display: flex; align-items: center; justify-content: center; gap: 6px; border-radius: 7px; color: #fff; background: var(--blue); font-size: 10px; font-weight: 800; text-align: center; }
 .seatSelectionCard > a:hover { background: var(--blue-dark); }
+.selectedOfferList { display: grid; gap: 5px; }
+.selectedOfferList a {
+  min-height: 33px;
+  padding: 7px 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 13px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #d9e1e9;
+  border-radius: 7px;
+  color: var(--ink);
+  background: #fff;
+  font-size: 9px;
+}
+.selectedOfferList a:hover { border-color: var(--blue); background: #f5faff; }
+.selectedOfferList a > span { min-width: 0; display: flex; align-items: center; gap: 5px; overflow: hidden; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+.selectedOfferList a > span i { width: 7px; height: 7px; flex: none; border-radius: 50%; }
+.selectedOfferList a > span small { padding: 2px 4px; border-radius: 3px; color: #0c7957; background: #e4f6ef; font-size: 6px; font-weight: 850; text-transform: uppercase; }
+.selectedOfferList a > strong { font-size: 11px; }
+.selectedOfferList a > svg { color: var(--blue); }
 .mapMarketplaceStrip {
   padding: 10px 14px;
   display: grid;
@@ -851,6 +889,7 @@ button { color: inherit; }
 }
 .mapSourcePrice > span i { width: 6px; height: 6px; flex: none; border-radius: 50%; }
 .mapSourcePrice strong { font-size: 12px; }
+.mapSourcePrice > small { overflow: hidden; color: var(--muted); font-size: 7px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
 .mapSourcePrice.status-fresh strong { color: #0b805b; }
 .mapSourcePrice.status-not-found strong { color: #8a6415; }
 .mapSourcePrice.status-blocked strong,

@@ -150,7 +150,9 @@ function seatsFromListing(record: Record<string, unknown>) {
   const seats = new Set<string>();
   const addSeat = (value: unknown) => {
     if (typeof value === "string" || typeof value === "number") {
-      for (const label of String(value).split(",").map((item) => item.trim()).filter(Boolean)) seats.add(label);
+      for (const label of String(value).split(",").map((item) => item.trim()).filter(Boolean)) {
+        if (!/^(?:[-—*]+|any|ga|general admission|n\/?a|tba|unknown)$/i.test(label)) seats.add(label);
+      }
       return;
     }
     if (value && typeof value === "object") {

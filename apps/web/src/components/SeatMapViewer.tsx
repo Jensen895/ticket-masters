@@ -25,8 +25,11 @@ const DETAIL_ZOOM = 2;
 const ZOOM_STEP = 0.45;
 
 type RecommendationMode = "lowest" | "best";
-type PricedSeat = { position: SeatMapSeatPosition; offer: TicketOffer };
-type SectionWithPrice = SeatMapSectionPosition & { offer?: TicketOffer };
+type PricedSeat = { position: SeatMapSeatPosition; offer: TicketOffer; offers: TicketOffer[] };
+type SectionWithPrice = SeatMapSectionPosition & { offer?: TicketOffer; offers: TicketOffer[] };
+type PriceListItem =
+  | { kind: "seat"; key: string; seat: PricedSeat }
+  | { kind: "offer"; key: string; offer: TicketOffer };
 
 function clampZoom(value: number) {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
@@ -59,6 +62,29 @@ function cheaper(left: TicketOffer | undefined, right: TicketOffer) {
   if (!left || right.priceCents < left.priceCents) return right;
   if (right.priceCents === left.priceCents && right.feesIncluded && !left.feesIncluded) return right;
   return left;
+}
+
+function isExactSeatOffer(offer: TicketOffer) {
+  const seat = normalizePlace(offer.seat ?? "");
+  return offer.row !== "—" && !["—", "ANY", "GA", "NA", "TBA", "UNKNOWN"].includes(seat);
+}
+
+function sourceSummary(source: MarketplaceCrawlResult) {
+  if (source.status === "fresh" && source.offers.length) {
+    const minimum = source.offers.reduce((lowest, offer) => Math.min(lowest, offer.priceCents), Number.POSITIVE_INFINITY);
+    const exactSeats = new Set(source.offers.filter(isExactSeatOffer)
+      .map((offer) => seatKey(offer.section, offer.row, offer.seat!))).size;
+    const mappedListings = source.offers.filter((offer) => normalizeSection(offer.section) !== "ANY").length;
+    return {
+      price: `From ${money(minimum)}`,
+      coverage: exactSeats
+        ? `${exactSeats.toLocaleString()} exact seat${exactSeats === 1 ? "" : "s"}`
+        : mappedListings
+          ? `${mappedListings.toLocaleString()} section/row price${mappedListings === 1 ? "" : "s"}`
+          : "Event minimum only",
+    };
+  }
+  return { price: availabilityLabel(source), coverage: source.message };
 }
 
 function sectionDistance(section: SeatMapSectionPosition) {
@@ -126,28 +152,46 @@ export function SeatMapViewer({
     const positions = new Map((prices?.sectionPositions ?? []).map((position) => [normalizeSection(position.section), position]));
     const lowestBySection = new Map<string, TicketOffer>();
     const lowestBySeat = new Map<string, TicketOffer>();
+    const offersBySectionSource = new Map<string, Map<TicketOffer["marketplace"], TicketOffer>>();
+    const offersBySeatSource = new Map<string, Map<TicketOffer["marketplace"], TicketOffer>>();
 
     for (const offer of allOffers) {
       const sectionKey = normalizeSection(offer.section);
       if (sectionKey === "ANY" || !positions.has(sectionKey)) continue;
       lowestBySection.set(sectionKey, cheaper(lowestBySection.get(sectionKey), offer));
-      if (offer.seat && offer.row !== "—") {
-        const key = seatKey(offer.section, offer.row, offer.seat);
+      const sectionSources = offersBySectionSource.get(sectionKey) ?? new Map();
+      sectionSources.set(offer.marketplace, cheaper(sectionSources.get(offer.marketplace), offer));
+      offersBySectionSource.set(sectionKey, sectionSources);
+      if (isExactSeatOffer(offer)) {
+        const key = seatKey(offer.section, offer.row, offer.seat!);
         lowestBySeat.set(key, cheaper(lowestBySeat.get(key), offer));
+        const seatSources = offersBySeatSource.get(key) ?? new Map();
+        seatSources.set(offer.marketplace, cheaper(seatSources.get(offer.marketplace), offer));
+        offersBySeatSource.set(key, seatSources);
       }
     }
 
     const sections: SectionWithPrice[] = [...positions.entries()].map(([key, position]) => ({
       ...position,
       offer: lowestBySection.get(key),
+      offers: [...(offersBySectionSource.get(key)?.values() ?? [])].sort((left, right) => left.priceCents - right.priceCents),
     }));
     const pricedSeats: PricedSeat[] = (prices?.seatPositions ?? []).flatMap((position) => {
-      const offer = lowestBySeat.get(seatKey(position.section, position.row, position.seat));
-      return offer ? [{ position, offer }] : [];
+      const key = seatKey(position.section, position.row, position.seat);
+      const offer = lowestBySeat.get(key);
+      const offers = [...(offersBySeatSource.get(key)?.values() ?? [])].sort((left, right) => left.priceCents - right.priceCents);
+      return offer ? [{ position, offer, offers }] : [];
     });
 
     const sourceColors = new Map((prices?.sources ?? []).map((source) => [source.marketplace, source.color]));
-    return { sections, pricedSeats, lowestBySeat, sourceColors };
+    const mappedOfferIds = new Set(pricedSeats.flatMap((seat) => seat.offers.map((offer) => offer.id)));
+    return {
+      sections,
+      pricedSeats,
+      lowestBySeat,
+      sourceColors,
+      mappedOfferIds,
+    };
   }, [prices]);
 
   const selectedSection = mapData.sections.find((section) => normalizeSection(section.section) === selectedSectionKey);
@@ -163,6 +207,51 @@ export function SeatMapViewer({
     : seatDistance(left.position) - seatDistance(right.position)
       || left.offer.priceCents - right.offer.priceCents
       || seatLabelCompare(left, right)), [mapData.pricedSeats, mode]);
+
+  const unmappedOffers = useMemo(() => (prices?.sources ?? [])
+    .flatMap((source) => source.offers)
+    .filter((offer) => !mapData.mappedOfferIds.has(offer.id))
+    .sort((left, right) => mode === "lowest"
+      ? left.priceCents - right.priceCents
+        || left.section.localeCompare(right.section, undefined, { numeric: true })
+      : left.section.localeCompare(right.section, undefined, { numeric: true })
+        || left.row.localeCompare(right.row, undefined, { numeric: true })
+        || left.priceCents - right.priceCents), [mapData.mappedOfferIds, mode, prices]);
+
+  const priceListItems = useMemo<PriceListItem[]>(() => {
+    const seatItems: PriceListItem[] = sortedSeats.map((seat) => ({ kind: "seat", key: `seat-${seat.position.id}`, seat }));
+    const offerItems: PriceListItem[] = unmappedOffers.map((offer) => ({ kind: "offer", key: `offer-${offer.id}`, offer }));
+    if (mode === "best") return [...seatItems, ...offerItems];
+    return [...seatItems, ...offerItems].sort((left, right) => {
+      const leftPrice = left.kind === "seat" ? left.seat.offer.priceCents : left.offer.priceCents;
+      const rightPrice = right.kind === "seat" ? right.seat.offer.priceCents : right.offer.priceCents;
+      return leftPrice - rightPrice;
+    });
+  }, [mode, sortedSeats, unmappedOffers]);
+
+  const rowOfferMarkers = useMemo(() => {
+    if (!selectedSectionKey || !sectionSeats.length) return [];
+    const offersByRow = new Map<string, Map<TicketOffer["marketplace"], TicketOffer>>();
+    for (const offer of (prices?.sources ?? []).flatMap((source) => source.offers)) {
+      if (normalizeSection(offer.section) !== selectedSectionKey || offer.row === "—" || isExactSeatOffer(offer)) continue;
+      const rowKey = normalizePlace(offer.row);
+      const sourceOffers = offersByRow.get(rowKey) ?? new Map();
+      sourceOffers.set(offer.marketplace, cheaper(sourceOffers.get(offer.marketplace), offer));
+      offersByRow.set(rowKey, sourceOffers);
+    }
+    return [...offersByRow.entries()].flatMap(([rowKey, sourceOffers]) => {
+      const rowSeats = sectionSeats.filter((seat) => normalizePlace(seat.row) === rowKey);
+      if (!rowSeats.length) return [];
+      const offers = [...sourceOffers.values()].sort((left, right) => left.priceCents - right.priceCents);
+      return [{
+        row: offers[0]!.row,
+        offer: offers[0]!,
+        offers,
+        xPercent: rowSeats.reduce((sum, seat) => sum + seat.xPercent, 0) / rowSeats.length,
+        yPercent: rowSeats.reduce((sum, seat) => sum + seat.yPercent, 0) / rowSeats.length,
+      }];
+    });
+  }, [prices, sectionSeats, selectedSectionKey]);
 
   const recommendation = useMemo(() => {
     if (sortedSeats.length) return sortedSeats[0];
@@ -394,6 +483,24 @@ export function SeatMapViewer({
                     />
                   );
                 })}
+                {rowOfferMarkers.map((marker) => (
+                  <a
+                    className="rowPriceMarker"
+                    href={marker.offer.deepLink}
+                    key={normalizePlace(marker.row)}
+                    rel="noreferrer"
+                    style={{
+                      left: `${marker.xPercent}%`,
+                      top: `${marker.yPercent}%`,
+                      "--row-source": mapData.sourceColors.get(marker.offer.marketplace),
+                    } as CSSProperties}
+                    target="_blank"
+                    title={`${marker.offers.map((offer) => `${money(offer.priceCents)} on ${offer.marketplaceLabel}`).join(" · ")} · Row ${marker.row}`}
+                  >
+                    <b>{money(marker.offer.priceCents)}</b>
+                    <small>Row {marker.row}{marker.offers.length > 1 ? ` · ${marker.offers.length} sites` : ` · ${marker.offer.marketplaceLabel}`}</small>
+                  </a>
+                ))}
               </div>
             )}
               </div>
@@ -432,11 +539,16 @@ export function SeatMapViewer({
                 {selectedSeat ? (
                   <>
                     <h3>Row {selectedSeat.position.row} · Seat {selectedSeat.position.seat}</h3>
-                    <div className="selectedSeatPrice"><strong>{money(selectedSeat.offer.priceCents)}</strong><span>lowest on {selectedSeat.offer.marketplaceLabel}</span></div>
-                    <p>{selectedSeat.offer.feesIncluded ? "Price includes disclosed fees." : "Fees may be added by the seller."}</p>
-                    <a href={selectedSeat.offer.deepLink} target="_blank" rel="noreferrer">
-                      Get this seat on {selectedSeat.offer.marketplaceLabel} <ExternalLink size={15} />
-                    </a>
+                    <p>{selectedSeat.offers.length > 1 ? "Compare every marketplace that disclosed this exact seat." : "This marketplace disclosed the exact seat."}</p>
+                    <div className="selectedOfferList">
+                      {selectedSeat.offers.map((offer, index) => (
+                        <a href={offer.deepLink} target="_blank" rel="noreferrer" key={offer.marketplace}>
+                          <span><i style={{ background: mapData.sourceColors.get(offer.marketplace) }} />{offer.marketplaceLabel}{index === 0 && <small>Lowest</small>}</span>
+                          <strong>{money(offer.priceCents)}</strong>
+                          <ExternalLink size={13} />
+                        </a>
+                      ))}
+                    </div>
                   </>
                 ) : (
                   <>
@@ -444,11 +556,15 @@ export function SeatMapViewer({
                     <p>{sectionSeats.length
                       ? `${sectionSeats.length} seat locations shown. Priced dots are listings whose exact seat was publicly disclosed.`
                       : "Ticketmaster did not publish individual seat coordinates for this section."}</p>
-                    {selectedSection.offer && (
-                      <a href={selectedSection.offer.deepLink} target="_blank" rel="noreferrer">
-                        Section listings from {money(selectedSection.offer.priceCents)} <ExternalLink size={15} />
-                      </a>
-                    )}
+                    <div className="selectedOfferList">
+                      {selectedSection.offers.map((offer, index) => (
+                        <a href={offer.deepLink} target="_blank" rel="noreferrer" key={offer.marketplace}>
+                          <span><i style={{ background: mapData.sourceColors.get(offer.marketplace) }} />{offer.marketplaceLabel}{index === 0 && <small>Lowest</small>}</span>
+                          <strong>{money(offer.priceCents)}</strong>
+                          <ExternalLink size={13} />
+                        </a>
+                      ))}
+                    </div>
                   </>
                 )}
               </div>
@@ -456,13 +572,13 @@ export function SeatMapViewer({
           </div>
         </div>
 
-        <aside className="seatPricePanel" aria-label="Lowest marketplace price by exact seat">
+        <aside className="seatPricePanel" aria-label="Marketplace prices by seat or section">
           <div className="seatPriceHeading">
             <div>
-              <span>Available seats</span>
-              <h3>Prices by seat</h3>
+              <span>Available listings</span>
+              <h3>Prices by seat or section</h3>
             </div>
-            <strong>{sortedSeats.length.toLocaleString()}</strong>
+            <strong>{priceListItems.length.toLocaleString()}</strong>
           </div>
           <div className="seatPriceSort" role="group" aria-label="Sort seat prices">
             <button className={mode === "lowest" ? "active" : ""} type="button" onClick={() => setMode("lowest")}>Lowest price</button>
@@ -470,18 +586,33 @@ export function SeatMapViewer({
           </div>
           {loadingPrices && !prices ? (
             <div className="seatPriceEmpty"><i /> Finding the lowest price for each seat…</div>
-          ) : sortedSeats.length ? (
+          ) : priceListItems.length ? (
             <ol className="seatPriceList">
-              {sortedSeats.map((seat, index) => (
-                <li className={seat.position.id === selectedSeatId ? "selected" : ""} key={seat.position.id}>
-                  <button type="button" onClick={() => focusSeat(seat)} disabled={!imageUrl} aria-label={`Show section ${seat.position.section}, row ${seat.position.row}, seat ${seat.position.seat} on the map`}>
+              {priceListItems.map((item, index) => item.kind === "seat" ? (
+                <li className={item.seat.position.id === selectedSeatId ? "selected" : ""} key={item.key}>
+                  <button type="button" onClick={() => focusSeat(item.seat)} disabled={!imageUrl} aria-label={`Show section ${item.seat.position.section}, row ${item.seat.position.row}, seat ${item.seat.position.seat} on the map`}>
                     {index === 0 && <small>{mode === "lowest" ? "Lowest price" : "Best position"}</small>}
-                    <strong>Section {seat.position.section}</strong>
-                    <span>Row {seat.position.row} · Seat {seat.position.seat}</span>
+                    <strong>Section {item.seat.position.section}</strong>
+                    <span>Row {item.seat.position.row} · Seat {item.seat.position.seat}</span>
                   </button>
-                  <a href={seat.offer.deepLink} target="_blank" rel="noreferrer" aria-label={`View seat ${seat.position.seat} on ${seat.offer.marketplaceLabel}`}>
-                    <strong>{money(seat.offer.priceCents)}</strong>
-                    <span><i style={{ background: mapData.sourceColors.get(seat.offer.marketplace) }} />{seat.offer.marketplaceLabel}<ExternalLink size={12} /></span>
+                  <a href={item.seat.offer.deepLink} target="_blank" rel="noreferrer" aria-label={`View seat ${item.seat.position.seat} on ${item.seat.offer.marketplaceLabel}`}>
+                    <strong>{money(item.seat.offer.priceCents)}</strong>
+                    <span>
+                      {item.seat.offers.map((offer) => <i style={{ background: mapData.sourceColors.get(offer.marketplace) }} key={offer.marketplace} />)}
+                      {item.seat.offers.length > 1 ? `${item.seat.offers.length} sites` : item.seat.offer.marketplaceLabel}<ExternalLink size={12} />
+                    </span>
+                  </a>
+                </li>
+              ) : (
+                <li key={item.key}>
+                  <div className="seatListingLocation">
+                    {index === 0 && <small>{mode === "lowest" ? "Lowest price" : "First section"}</small>}
+                    <strong>{normalizeSection(item.offer.section) === "ANY" ? "Section not disclosed" : `Section ${item.offer.section}`}</strong>
+                    <span>{item.offer.row !== "—" ? `Row ${item.offer.row}` : "Event-level minimum"}{item.offer.seat ? ` · Seat ${item.offer.seat}` : ""}</span>
+                  </div>
+                  <a href={item.offer.deepLink} target="_blank" rel="noreferrer" aria-label={normalizeSection(item.offer.section) === "ANY" ? `View event minimum on ${item.offer.marketplaceLabel}` : `View section ${item.offer.section} on ${item.offer.marketplaceLabel}`}>
+                    <strong>{money(item.offer.priceCents)}</strong>
+                    <span><i style={{ background: mapData.sourceColors.get(item.offer.marketplace) }} />{item.offer.marketplaceLabel}<ExternalLink size={12} /></span>
                   </a>
                 </li>
               ))}
@@ -489,27 +620,31 @@ export function SeatMapViewer({
           ) : (
             <div className="seatPriceEmpty">
               <Armchair size={24} />
-              <strong>No exact-seat prices found</strong>
-              <span>Some marketplaces publish only a section or row, so those prices stay on the map.</span>
+              <strong>No section or seat prices found</strong>
+              <span>No marketplace returned a public listing price for this event.</span>
             </div>
           )}
         </aside>
       </div>
-      {imageUrl && prices && (
-        <div className="mapMarketplaceStrip" aria-label="Resale platform availability">
-          {prices.sources.map((source) => (
-            <div className={`mapSourcePrice status-${source.status}`} key={source.marketplace}>
-              <span><i style={{ background: source.color }} />{source.label}</span>
-              <strong>{availabilityLabel(source)}</strong>
-            </div>
-          ))}
+      {prices && (
+        <div className="mapMarketplaceStrip" aria-label="Marketplace price coverage">
+          {prices.sources.map((source) => {
+            const summary = sourceSummary(source);
+            return (
+              <div className={`mapSourcePrice status-${source.status}`} key={source.marketplace}>
+                <span><i style={{ background: source.color }} />{source.label}</span>
+                <strong>{summary.price}</strong>
+                <small title={source.message}>{summary.coverage}</small>
+              </div>
+            );
+          })}
         </div>
       )}
       <div className="seatMapFooter">
         <span><i /> Click a section to see its exact seat layout</span>
         <span>{prices ? `${(prices.seatPositions ?? []).length.toLocaleString()} seats · checked ${new Date(prices.capturedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "Waiting for prices"}</span>
       </div>
-      <p className="seatMapDisclaimer">Each mapped seat shows only the lowest publicly listed price found across all sources. Exact-seat prices appear only when a marketplace discloses a seat number; section-only listings remain available from the section panel.</p>
+      <p className="seatMapDisclaimer">Each mapped seat uses the color of its lowest exact-seat offer. Section/row prices appear in the section panel, while event-only minimums appear in the source cards below the map.</p>
     </div>
   );
 }

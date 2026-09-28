@@ -146,15 +146,19 @@ export function bestMatchingEvent(
   expected: { name: string; startsAt?: string; venue: string },
 ): SchemaEvent | undefined {
   let best: { event: SchemaEvent; score: number } | undefined;
+  const expectedDate = expected.startsAt ? Date.parse(expected.startsAt) : Number.NaN;
   for (const event of events) {
     let score = overlap(expected.name, event.name) * 8;
     if (/\bparking\b/i.test(event.name) !== /\bparking\b/i.test(expected.name)) score -= 8;
     if (event.venue) score += overlap(expected.venue, event.venue) * 3;
-    const expectedDate = expected.startsAt ? Date.parse(expected.startsAt) : Number.NaN;
     const candidateDate = event.startDate ? Date.parse(event.startDate) : Number.NaN;
     if (Number.isFinite(expectedDate) && Number.isFinite(candidateDate)) {
       const hours = Math.abs(expectedDate - candidateDate) / 3_600_000;
-      score += hours <= 30 ? 5 : hours <= 54 ? 1 : -5;
+      // Teams and touring acts commonly repeat the same event name at the same
+      // venue. A strong title match must never make a different dated event
+      // look like a valid price source.
+      if (hours > 54) continue;
+      score += hours <= 30 ? 5 : 1;
     }
     const hasPublicPrice = event.lowPrice && event.url ? 0.25 : 0;
     score += hasPublicPrice;

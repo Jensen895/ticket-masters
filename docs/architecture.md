@@ -39,7 +39,7 @@ Collectors do not authenticate, execute anti-bot workarounds, or retry around ac
 
 Event matching combines title token overlap, venue overlap, and start-time proximity. Parking/add-on events are penalized unless the requested event is itself parking. Section labels are case-folded and stripped of common `section`, `sec`, `level`, and `zone` prefixes before matching.
 
-Listing money is stored as integer cents. A nested public `total` is marked fee-inclusive; ambiguous prices are not labeled all-in. For each Ticketmaster section, the UI shows the lowest listing found across all marketplaces. When a source publishes section, row, and seat, listings with the same normalized seat identity are collapsed to the cheapest offer and retain that marketplace’s deep link. Section-only and row-only listings are never assigned to a fabricated exact seat.
+Listing money is stored as integer cents. A nested public `total` is marked fee-inclusive; ambiguous prices are not labeled all-in. For each Ticketmaster section, the UI shows the lowest listing found across all marketplaces. When sources publish the same section, row, and seat, the map colors the seat by its lowest-priced marketplace and keeps the cheapest offer from each marketplace available for comparison. Section-only and row-only listings are never assigned to a fabricated exact seat; source cards explicitly distinguish exact-seat, section/row, and event-minimum coverage.
 
 ## Persistence and scaling path
 
