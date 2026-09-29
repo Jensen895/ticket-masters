@@ -22,13 +22,13 @@ Browser
                               clickable sections and deduplicated seat prices
 ```
 
-The browser stores the user’s selected events in local storage. The Next.js server owns all crawling, so remote sites are never called from the browser and no secret or seller API key is required.
+The browser stores the user’s selected events in local storage. It uses the browser geolocation API (with permission) to detect coordinates, then a same-origin route resolves the city label. Location-aware Ticketmaster searches retrieve location-ranked public results and enforce a 100-mile radius from venue coordinates. The Next.js server owns all remote requests, so third-party sites are never called directly from the browser and no secret or seller API key is required.
 
 ## Collection boundary
 
 Collectors request ordinary public pages with a descriptive user agent, a 10-second timeout, a 10 MB response cap, and a short in-process cache. They parse:
 
-- Ticketmaster `__NEXT_DATA__` for catalog metadata and static map URLs.
+- Ticketmaster `__NEXT_DATA__` and public search JSON for catalog metadata, venue coordinates, and static map URLs.
 - Marketplace JSON-LD for event discovery and event-level price ranges.
 - Publicly embedded JSON page state for section, row, quantity, and price listings.
 - Ticketmaster map geometry for section outlines, rows, seat numbers, and exact seat coordinates.

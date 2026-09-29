@@ -8,16 +8,22 @@ import type {
 import {
   CalendarDays,
   CheckCircle2,
+  LoaderCircle,
+  LocateFixed,
   MapPin,
   Search,
   ShieldCheck,
   Sparkles,
   Ticket,
 } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EventCard } from "./EventCard";
 import { SearchResultCard } from "./SearchResultCard";
-import { readTrackedEvents, writeTrackedEvents } from "@/lib/tracked-events";
+import {
+  readTrackedEvents,
+  removeExpiredTrackedEvents,
+  writeTrackedEvents,
+} from "@/lib/tracked-events";
 
 const classifications: Array<"All" | EventClassification> = [
   "All",
@@ -30,12 +36,17 @@ const classifications: Array<"All" | EventClassification> = [
 ];
 
 const groupOrder: EventClassification[] = ["Music", "Sports", "Arts & Theater", "Comedy", "Family", "Other"];
+const LOCATION_RADIUS_MILES = 100;
 
 export function HomeExplorer() {
   const [trackedEvents, setTrackedEvents] = useState<TrackedEvent[]>([]);
   const [hydrated, setHydrated] = useState(false);
   const [query, setQuery] = useState("");
   const [city, setCity] = useState("");
+  const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number }>();
+  const [locationStatus, setLocationStatus] = useState<"idle" | "locating" | "detected" | "unavailable">("idle");
+  const [locationMessage, setLocationMessage] = useState("Use my current location");
+  const cityEditVersion = useRef(0);
   const [results, setResults] = useState<TrackedEvent[]>([]);
   const [resultTotal, setResultTotal] = useState(0);
   const [resultPage, setResultPage] = useState(0);
@@ -46,9 +57,90 @@ export function HomeExplorer() {
   const [classification, setClassification] = useState<(typeof classifications)[number]>("All");
 
   useEffect(() => {
-    setTrackedEvents(readTrackedEvents(window.localStorage));
+    const savedEvents = readTrackedEvents(window.localStorage);
+    const currentEvents = removeExpiredTrackedEvents(savedEvents);
+    if (currentEvents.length !== savedEvents.length) writeTrackedEvents(window.localStorage, currentEvents);
+    setTrackedEvents(currentEvents);
     setHydrated(true);
   }, []);
+
+  const detectCity = useCallback((replaceCity = false) => {
+    if (!("geolocation" in navigator)) {
+      setLocationStatus("unavailable");
+      setLocationMessage("Location detection is not supported by this browser. Enter a city manually.");
+      return;
+    }
+
+    setLocationStatus("locating");
+    setLocationMessage("Detecting your city…");
+    const editVersion = cityEditVersion.current;
+    navigator.geolocation.getCurrentPosition(async ({ coords }) => {
+      try {
+        const params = new URLSearchParams({
+          latitude: String(coords.latitude),
+          longitude: String(coords.longitude),
+        });
+        const response = await fetch(`/api/location?${params}`);
+        const payload = await response.json() as { city?: string; latitude?: number; longitude?: number; message?: string };
+        if (!response.ok || !payload.city || payload.latitude === undefined || payload.longitude === undefined) {
+          throw new Error(payload.message || "Your city could not be detected.");
+        }
+        if (replaceCity || cityEditVersion.current === editVersion) {
+          setCity(payload.city);
+          setCoordinates({ latitude: payload.latitude, longitude: payload.longitude });
+          setLocationStatus("detected");
+          setLocationMessage(`Searching within ${LOCATION_RADIUS_MILES} miles of ${payload.city}`);
+        } else {
+          setLocationStatus("idle");
+          setLocationMessage("Use my current location");
+        }
+      } catch (caught) {
+        setLocationStatus("unavailable");
+        setLocationMessage(caught instanceof Error ? caught.message : "Your city could not be detected. Enter it manually.");
+      }
+    }, (locationError) => {
+      setLocationStatus("unavailable");
+      setLocationMessage(locationError.code === locationError.PERMISSION_DENIED
+        ? "Location access was not granted. Enter a city manually or try again."
+        : "Your location could not be detected. Enter a city manually or try again.");
+    }, {
+      enableHighAccuracy: false,
+      maximumAge: 15 * 60 * 1_000,
+      timeout: 10_000,
+    });
+  }, []);
+
+  useEffect(() => {
+    detectCity();
+  }, [detectCity]);
+
+  useEffect(() => {
+    if (!hydrated || trackedEvents.length === 0) return;
+    let timer: number | undefined;
+
+    function scheduleRemoval(events: TrackedEvent[]) {
+      const now = Date.now();
+      const currentEvents = removeExpiredTrackedEvents(events, now);
+      if (currentEvents.length !== events.length) {
+        writeTrackedEvents(window.localStorage, currentEvents);
+        setTrackedEvents(currentEvents);
+        return;
+      }
+
+      const nextStart = currentEvents.reduce((earliest, event) => {
+        const startsAt = event.startsAt ? Date.parse(event.startsAt) : Number.NaN;
+        return Number.isFinite(startsAt) && startsAt > now ? Math.min(earliest, startsAt) : earliest;
+      }, Number.POSITIVE_INFINITY);
+      if (!Number.isFinite(nextStart)) return;
+
+      // Recheck hourly so changes to the device clock cannot leave stale events behind.
+      const delay = Math.min(Math.max(nextStart - now + 50, 0), 60 * 60 * 1_000);
+      timer = window.setTimeout(() => scheduleRemoval(currentEvents), delay);
+    }
+
+    scheduleRemoval(trackedEvents);
+    return () => window.clearTimeout(timer);
+  }, [hydrated, trackedEvents]);
 
   const trackedIds = useMemo(() => new Set(trackedEvents.map((event) => event.id)), [trackedEvents]);
   const groupedEvents = useMemo(() => groupOrder.flatMap((group) => {
@@ -80,6 +172,11 @@ export function HomeExplorer() {
       const params = new URLSearchParams();
       if (query.trim()) params.set("q", query.trim());
       if (city.trim()) params.set("city", city.trim());
+      if (coordinates) {
+        params.set("latitude", String(coordinates.latitude));
+        params.set("longitude", String(coordinates.longitude));
+        params.set("radius", String(LOCATION_RADIUS_MILES));
+      }
       params.set("page", String(page));
       const response = await fetch(`/api/ticketmaster/events?${params.toString()}`);
       const payload = await response.json() as TicketmasterSearchResponse | { message?: string };
@@ -126,9 +223,29 @@ export function HomeExplorer() {
             <div className="heroLocation">
               <MapPin size={21} />
               <label>
-                <span>City (optional)</span>
-                <input value={city} onChange={(event) => setCity(event.target.value)} placeholder="Los Angeles" />
+                <span aria-live="polite">{locationStatus === "locating" ? "Detecting city…" : locationStatus === "detected" ? "City detected" : locationStatus === "unavailable" ? "City (enter manually)" : "City (optional)"}</span>
+                <input
+                  value={city}
+                  onChange={(event) => {
+                    setCity(event.target.value);
+                    cityEditVersion.current += 1;
+                    setCoordinates(undefined);
+                    if (locationStatus === "detected") setLocationStatus("idle");
+                  }}
+                  placeholder="Los Angeles"
+                  autoComplete="address-level2"
+                />
               </label>
+              <button
+                type="button"
+                className="detectLocationButton"
+                onClick={() => detectCity(true)}
+                disabled={locationStatus === "locating"}
+                aria-label={locationMessage}
+                title={locationMessage}
+              >
+                {locationStatus === "locating" ? <LoaderCircle className="spinning" size={17} /> : <LocateFixed size={17} />}
+              </button>
             </div>
             <button type="submit" disabled={loading}>{loading ? "Searching…" : "Search"}</button>
           </form>
@@ -146,7 +263,7 @@ export function HomeExplorer() {
             <div className="sectionHeading">
               <div>
                 <p className="sectionKicker">Ticketmaster results</p>
-                <h2>{loading ? "Searching…" : error ? "Search unavailable" : `${resultTotal.toLocaleString()} event${resultTotal === 1 ? "" : "s"} found`}</h2>
+                <h2>{loading ? "Searching…" : error ? "Search unavailable" : `${resultTotal.toLocaleString()} event${resultTotal === 1 ? "" : "s"} found${coordinates ? ` within ${LOCATION_RADIUS_MILES} miles` : ""}`}</h2>
               </div>
               <button className="textButton" type="button" onClick={() => { setHasSearched(false); setResults([]); setError(undefined); }}>Close results</button>
             </div>

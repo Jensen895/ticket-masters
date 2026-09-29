@@ -4,7 +4,7 @@ A private, read-only event price comparison board. It crawls public marketplace 
 
 ## What it does
 
-1. Searches Ticketmaster’s public web results for the event name, date, time, venue, image, and official static seat map.
+1. Searches Ticketmaster’s public web results for the event name, date, time, venue, image, and official static seat map. With browser location enabled, results are limited to matching events within 100 miles.
 2. Saves only events explicitly added by the user in browser local storage.
 3. On the first event-page load, refreshes the base Ticketmaster record and then concurrently crawls Ticketmaster, SeatGeek, StubHub, TickPick, Gametime, and Vivid Seats.
 4. Reads Ticketmaster’s public section outlines and exact seat coordinates, then aligns normalized marketplace listings to the same map.

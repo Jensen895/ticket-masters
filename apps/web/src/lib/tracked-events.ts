@@ -35,6 +35,17 @@ export function readTrackedEvents(storage: Pick<Storage, "getItem">): TrackedEve
   }
 }
 
+/** Events without a usable start time stay visible until Ticketmaster supplies one. */
+export function isTrackedEventExpired(event: TrackedEvent, now = Date.now()): boolean {
+  if (!event.startsAt) return false;
+  const startsAt = Date.parse(event.startsAt);
+  return Number.isFinite(startsAt) && startsAt <= now;
+}
+
+export function removeExpiredTrackedEvents(events: TrackedEvent[], now = Date.now()): TrackedEvent[] {
+  return events.filter((event) => !isTrackedEventExpired(event, now));
+}
+
 export function writeTrackedEvents(storage: Pick<Storage, "setItem">, events: TrackedEvent[]) {
   storage.setItem(TRACKED_EVENTS_STORAGE_KEY, JSON.stringify(events));
 }

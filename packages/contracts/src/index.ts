@@ -53,6 +53,8 @@ export interface Venue {
   city: string;
   region: string;
   timezone: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface EventSummary {

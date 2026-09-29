@@ -35,13 +35,14 @@ function crawlerUserAgent() {
     || "ticket-masters/0.1 (private personal event-price viewer)";
 }
 
-async function requestPage(url: string): Promise<string> {
+async function requestPage(url: string, extraHeaders: Record<string, string>): Promise<string> {
   const response = await undiciFetch(url, {
     redirect: "follow",
     headers: {
       Accept: "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
       "Accept-Language": "en-US,en;q=0.8",
       "User-Agent": crawlerUserAgent(),
+      ...extraHeaders,
     },
     signal: AbortSignal.timeout(Number(process.env.CRAWL_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS)),
     dispatcher: proxyDispatcher,
@@ -62,16 +63,17 @@ async function requestPage(url: string): Promise<string> {
 }
 
 /** Small in-process cache keeps a page load from repeatedly hitting seller sites. */
-export function fetchPublicPage(url: string): Promise<string> {
+export function fetchPublicPage(url: string, extraHeaders: Record<string, string> = {}): Promise<string> {
   const now = Date.now();
-  const cached = pageCache.get(url);
+  const cacheKey = JSON.stringify([url, extraHeaders]);
+  const cached = pageCache.get(cacheKey);
   if (cached && cached.expiresAt > now) return cached.value;
 
-  const value = requestPage(url).catch((error) => {
-    pageCache.delete(url);
+  const value = requestPage(url, extraHeaders).catch((error) => {
+    pageCache.delete(cacheKey);
     throw error;
   });
-  pageCache.set(url, {
+  pageCache.set(cacheKey, {
     expiresAt: now + Number(process.env.CRAWL_CACHE_TTL_MS ?? DEFAULT_CACHE_MS),
     value,
   });

@@ -18,6 +18,8 @@ interface TicketmasterWebsiteEvent {
     countryCode?: string;
     addressLineOne?: string;
     code?: string;
+    latitude?: number;
+    longitude?: number;
   };
   timeZone?: string;
   cancelled?: boolean;
@@ -124,6 +126,8 @@ function mapWebsiteEvent(event: TicketmasterWebsiteEvent): TrackedEvent | undefi
       city: venue?.city ?? "",
       region: venue?.state ?? venue?.countryCode ?? "",
       timezone: event.timeZone ?? "",
+      latitude: venue?.latitude,
+      longitude: venue?.longitude,
     },
     venueAddress: [venue?.addressLineOne, [venue?.city, venue?.state, venue?.code].filter(Boolean).join(", ")]
       .filter(Boolean)
@@ -165,6 +169,13 @@ export function mapTicketmasterSearchPage(html: string, page = 0): TicketmasterS
   const payload = JSON.parse(source) as unknown;
   const data = findSearchData(payload);
   if (!data) throw new Error("Ticketmaster search data could not be read.");
+  return mapTicketmasterSearchData(data, page);
+}
+
+/** Map the JSON returned by Ticketmaster's public search endpoint. */
+export function mapTicketmasterSearchData(value: unknown, page = 0, pageSize = 20): TicketmasterSearchResponse {
+  if (!value || typeof value !== "object") throw new Error("Ticketmaster search data could not be read.");
+  const data = value as SearchQueryData;
   const items = (data.events ?? []).flatMap((event) => {
     const mapped = mapWebsiteEvent(event);
     return mapped ? [mapped] : [];
@@ -174,8 +185,38 @@ export function mapTicketmasterSearchPage(html: string, page = 0): TicketmasterS
     items,
     total,
     page,
-    pageCount: Math.ceil(total / Math.max(items.length, 20)),
+    pageCount: Math.ceil(total / pageSize),
   };
+}
+
+function degreesToRadians(value: number) {
+  return value * Math.PI / 180;
+}
+
+export function distanceInMiles(
+  first: { latitude: number; longitude: number },
+  second: { latitude: number; longitude: number },
+) {
+  const latitudeDelta = degreesToRadians(second.latitude - first.latitude);
+  const longitudeDelta = degreesToRadians(second.longitude - first.longitude);
+  const firstLatitude = degreesToRadians(first.latitude);
+  const secondLatitude = degreesToRadians(second.latitude);
+  const haversine = Math.sin(latitudeDelta / 2) ** 2
+    + Math.cos(firstLatitude) * Math.cos(secondLatitude) * Math.sin(longitudeDelta / 2) ** 2;
+  return 3_958.8 * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+}
+
+export function eventsWithinRadius(
+  events: TrackedEvent[],
+  center: { latitude: number; longitude: number },
+  radiusMiles: number,
+) {
+  return events.filter((event) => {
+    const { latitude, longitude } = event.venue;
+    return latitude !== undefined
+      && longitude !== undefined
+      && distanceInMiles(center, { latitude, longitude }) <= radiusMiles;
+  });
 }
 
 export function asTicketmasterDetail(event: TrackedEvent): TrackedEventDetail {
