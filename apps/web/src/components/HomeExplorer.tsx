@@ -24,6 +24,7 @@ import {
   removeExpiredTrackedEvents,
   writeTrackedEvents,
 } from "@/lib/tracked-events";
+import { distanceInMiles } from "@/lib/ticketmaster";
 
 const classifications: Array<"All" | EventClassification> = [
   "All",
@@ -36,7 +37,14 @@ const classifications: Array<"All" | EventClassification> = [
 ];
 
 const groupOrder: EventClassification[] = ["Music", "Sports", "Arts & Theater", "Comedy", "Family", "Other"];
-const LOCATION_RADIUS_MILES = 100;
+const NEARBY_RADIUS_MILES = 100;
+const LOCATION_RADIUS_MILES = 500;
+
+interface SearchCriteria {
+  query: string;
+  city: string;
+  coordinates?: { latitude: number; longitude: number };
+}
 
 export function HomeExplorer() {
   const [trackedEvents, setTrackedEvents] = useState<TrackedEvent[]>([]);
@@ -54,7 +62,9 @@ export function HomeExplorer() {
   const [hasSearched, setHasSearched] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
+  const [searchClassification, setSearchClassification] = useState<(typeof classifications)[number]>("All");
   const [classification, setClassification] = useState<(typeof classifications)[number]>("All");
+  const submittedSearch = useRef<SearchCriteria | undefined>(undefined);
 
   useEffect(() => {
     const savedEvents = readTrackedEvents(window.localStorage);
@@ -163,35 +173,39 @@ export function HomeExplorer() {
     persist(trackedEvents.filter((event) => event.id !== eventId));
   }
 
-  async function searchTicketmaster(page = 0, append = false) {
+  async function searchTicketmaster(
+    page = 0,
+    requestedClassification = searchClassification,
+    criteria = submittedSearch.current ?? { query, city, coordinates },
+  ) {
     setLoading(true);
     setError(undefined);
     setHasSearched(true);
-    if (!append) setResults([]);
+    setResults([]);
     try {
       const params = new URLSearchParams();
-      if (query.trim()) params.set("q", query.trim());
-      if (city.trim()) params.set("city", city.trim());
-      if (coordinates) {
-        params.set("latitude", String(coordinates.latitude));
-        params.set("longitude", String(coordinates.longitude));
+      if (criteria.query) params.set("q", criteria.query);
+      if (criteria.city) params.set("city", criteria.city);
+      if (criteria.coordinates) {
+        params.set("latitude", String(criteria.coordinates.latitude));
+        params.set("longitude", String(criteria.coordinates.longitude));
         params.set("radius", String(LOCATION_RADIUS_MILES));
       }
+      if (requestedClassification !== "All") params.set("classification", requestedClassification);
       params.set("page", String(page));
       const response = await fetch(`/api/ticketmaster/events?${params.toString()}`);
       const payload = await response.json() as TicketmasterSearchResponse | { message?: string };
       if (!response.ok) throw new Error("message" in payload ? payload.message : undefined);
       const search = payload as TicketmasterSearchResponse;
-      setResults((current) => append
-        ? [...current, ...search.items.filter((item) => !current.some((existing) => existing.id === item.id))]
-        : search.items);
+      setResults(search.items);
       setResultTotal(search.total);
       setResultPage(search.page);
       setPageCount(search.pageCount);
-      if (!append) window.setTimeout(() => document.querySelector("#search-results")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+      window.setTimeout(() => document.querySelector("#search-results")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
     } catch (caught) {
       setResults([]);
       setResultTotal(0);
+      setPageCount(0);
       setError(caught instanceof Error && caught.message ? caught.message : "Search failed. Please try again.");
     } finally {
       setLoading(false);
@@ -200,8 +214,39 @@ export function HomeExplorer() {
 
   function submitSearch(formEvent: FormEvent<HTMLFormElement>) {
     formEvent.preventDefault();
-    void searchTicketmaster();
+    const criteria = {
+      query: query.trim(),
+      city: city.trim(),
+      coordinates,
+    };
+    submittedSearch.current = criteria;
+    void searchTicketmaster(0, searchClassification, criteria);
   }
+
+  const visibleResultPages = useMemo(() => {
+    const visibleCount = Math.min(5, pageCount);
+    const firstPage = Math.max(0, Math.min(resultPage - 2, pageCount - visibleCount));
+    return Array.from({ length: visibleCount }, (_, index) => firstPage + index);
+  }, [pageCount, resultPage]);
+
+  const groupedSearchResults = useMemo(() => {
+    const center = submittedSearch.current?.coordinates;
+    if (!center) return { nearby: [] as TrackedEvent[], farther: results };
+
+    const nearby: TrackedEvent[] = [];
+    const farther: TrackedEvent[] = [];
+    for (const event of results) {
+      const { latitude, longitude } = event.venue;
+      if (latitude !== undefined
+        && longitude !== undefined
+        && distanceInMiles(center, { latitude, longitude }) <= NEARBY_RADIUS_MILES) {
+        nearby.push(event);
+      } else {
+        farther.push(event);
+      }
+    }
+    return { nearby, farther };
+  }, [results]);
 
   return (
     <>
@@ -263,25 +308,80 @@ export function HomeExplorer() {
             <div className="sectionHeading">
               <div>
                 <p className="sectionKicker">Ticketmaster results</p>
-                <h2>{loading ? "Searching…" : error ? "Search unavailable" : `${resultTotal.toLocaleString()} event${resultTotal === 1 ? "" : "s"} found${coordinates ? ` within ${LOCATION_RADIUS_MILES} miles` : ""}`}</h2>
+                <h2>{loading ? "Searching…" : error ? "Search unavailable" : `${resultTotal.toLocaleString()} ${searchClassification === "All" ? "event" : searchClassification.toLowerCase() + " event"}${resultTotal === 1 ? "" : "s"} found${submittedSearch.current?.coordinates ? ` within ${LOCATION_RADIUS_MILES} miles` : ""}`}</h2>
               </div>
               <button className="textButton" type="button" onClick={() => { setHasSearched(false); setResults([]); setError(undefined); }}>Close results</button>
+            </div>
+            <div className="searchCategoryTabs" role="tablist" aria-label="Search result categories">
+              {classifications.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  role="tab"
+                  aria-selected={searchClassification === item}
+                  className={searchClassification === item ? "active" : ""}
+                  disabled={loading}
+                  onClick={() => {
+                    setSearchClassification(item);
+                    void searchTicketmaster(0, item);
+                  }}
+                >
+                  {item}
+                </button>
+              ))}
             </div>
             {error ? (
               <div className="inlineError"><strong>We couldn’t complete that search.</strong><span>{error}</span></div>
             ) : !loading && results.length === 0 ? (
               <div className="emptyState compactEmpty"><Search size={26} /><h3>No Ticketmaster events found</h3><p>Try a broader event, artist, venue, or city.</p></div>
             ) : (
-              <div className="searchResultGrid">
-                {results.map((event) => (
-                  <SearchResultCard key={event.id} event={event} added={trackedIds.has(event.id)} onAdd={() => addEvent(event)} />
-                ))}
+              <div className="searchResultGroups">
+                {groupedSearchResults.nearby.length > 0 && (
+                  <section className="searchResultGroup">
+                    <h3>Events right beside you</h3>
+                    <div className="searchResultGrid">
+                      {groupedSearchResults.nearby.map((event) => (
+                        <SearchResultCard key={event.id} event={event} added={trackedIds.has(event.id)} onAdd={() => addEvent(event)} />
+                      ))}
+                    </div>
+                  </section>
+                )}
+                {groupedSearchResults.farther.length > 0 && (
+                  <section className="searchResultGroup">
+                    {submittedSearch.current?.coordinates && <h3>More events within {LOCATION_RADIUS_MILES} miles</h3>}
+                    <div className="searchResultGrid">
+                      {groupedSearchResults.farther.map((event) => (
+                        <SearchResultCard key={event.id} event={event} added={trackedIds.has(event.id)} onAdd={() => addEvent(event)} />
+                      ))}
+                    </div>
+                  </section>
+                )}
               </div>
             )}
-            {!error && !loading && resultPage + 1 < pageCount && (
-              <button className="loadMoreButton" type="button" onClick={() => void searchTicketmaster(resultPage + 1, true)}>
-                Load more events
-              </button>
+            {!error && !loading && pageCount > 1 && (
+              <nav className="resultPagination" aria-label="Search result pages">
+                <button type="button" disabled={resultPage === 0} onClick={() => void searchTicketmaster(resultPage - 1)}>
+                  Previous
+                </button>
+                <div className="resultPageNumbers">
+                  {visibleResultPages.map((page) => (
+                    <button
+                      key={page}
+                      type="button"
+                      className={resultPage === page ? "active" : ""}
+                      aria-current={resultPage === page ? "page" : undefined}
+                      aria-label={`Page ${page + 1}`}
+                      onClick={() => void searchTicketmaster(page)}
+                    >
+                      {page + 1}
+                    </button>
+                  ))}
+                </div>
+                <span>Page {resultPage + 1} of {pageCount} · 10 per page</span>
+                <button type="button" disabled={resultPage + 1 >= pageCount} onClick={() => void searchTicketmaster(resultPage + 1)}>
+                  Next
+                </button>
+              </nav>
             )}
           </section>
         )}

@@ -1,22 +1,39 @@
 import { fetchPublicPage } from "@/lib/crawlers/http";
 import {
+  buildTicketmasterSearchResponse,
   eventsWithinRadius,
   mapTicketmasterSearchData,
   mapTicketmasterSearchPage,
 } from "@/lib/ticketmaster";
-import type { TicketmasterSearchResponse, TrackedEvent } from "@ticket-hub/contracts";
+import type { EventClassification, TrackedEvent } from "@ticket-hub/contracts";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const SEARCH_PAGE_SIZE = 50;
-const MAX_VICINITY_PAGES = 20;
+const SOURCE_PAGE_SIZE = 50;
+const RESULTS_PAGE_SIZE = 10;
+const MAX_SOURCE_PAGES = 20;
+const PREFERRED_RADIUS_MILES = 100;
+const classifications = new Set<EventClassification>([
+  "Music",
+  "Sports",
+  "Arts & Theater",
+  "Comedy",
+  "Family",
+  "Other",
+]);
 
 function coordinate(value: string | null, minimum: number, maximum: number) {
   if (value === null || value.trim() === "") return undefined;
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= minimum && parsed <= maximum ? parsed : undefined;
+}
+
+function selectedClassification(value: string | null) {
+  return value && classifications.has(value as EventClassification)
+    ? value as EventClassification
+    : undefined;
 }
 
 async function fetchNearbyEvents(query: string, latitude: number, longitude: number, radiusMiles: number) {
@@ -25,16 +42,16 @@ async function fetchNearbyEvents(query: string, latitude: number, longitude: num
   let page = 0;
   let pageCount = 1;
 
-  while (page < pageCount && page < MAX_VICINITY_PAGES) {
+  while (page < pageCount && page < MAX_SOURCE_PAGES) {
     const url = new URL("https://www.ticketmaster.com/api/search/events");
     if (query) url.searchParams.set("q", query);
     url.searchParams.set("latitude", latitude.toFixed(3));
     url.searchParams.set("longitude", longitude.toFixed(3));
     url.searchParams.set("distance", String(radiusMiles));
     url.searchParams.set("distanceUnit", "miles");
-    url.searchParams.set("sort", "relevance");
+    url.searchParams.set("sort", "date");
     url.searchParams.set("region", "200");
-    url.searchParams.set("size", String(SEARCH_PAGE_SIZE));
+    url.searchParams.set("size", String(SOURCE_PAGE_SIZE));
     url.searchParams.set("page", String(page));
 
     const body = await fetchPublicPage(url.toString(), {
@@ -44,7 +61,7 @@ async function fetchNearbyEvents(query: string, latitude: number, longitude: num
       "X-TMPlatform": "global",
       "X-TMClient-App": "marketplace_fe",
     });
-    const search = mapTicketmasterSearchData(JSON.parse(body) as unknown, page, SEARCH_PAGE_SIZE);
+    const search = mapTicketmasterSearchData(JSON.parse(body) as unknown, page, SOURCE_PAGE_SIZE);
     pageCount = search.pageCount;
     const nearby = eventsWithinRadius(search.items, { latitude, longitude }, radiusMiles);
     for (const event of nearby) {
@@ -60,7 +77,34 @@ async function fetchNearbyEvents(query: string, latitude: number, longitude: num
     page += 1;
   }
 
-  return { items: events, total: events.length, page: 0, pageCount: 1 } satisfies TicketmasterSearchResponse;
+  return events;
+}
+
+async function fetchSearchEvents(query: string) {
+  const events: TrackedEvent[] = [];
+  const seen = new Set<string>();
+  let sourcePage = 0;
+  let pageCount = 1;
+
+  while (sourcePage < pageCount && sourcePage < MAX_SOURCE_PAGES) {
+    const url = new URL("https://www.ticketmaster.com/search");
+    if (query) url.searchParams.set("q", query);
+    url.searchParams.set("sort", "date");
+    if (sourcePage) url.searchParams.set("page", String(sourcePage));
+
+    const html = await fetchPublicPage(url.toString());
+    const search = mapTicketmasterSearchPage(html, sourcePage);
+    pageCount = search.pageCount;
+    for (const event of search.items) {
+      if (!seen.has(event.id)) {
+        seen.add(event.id);
+        events.push(event);
+      }
+    }
+    sourcePage += 1;
+  }
+
+  return events;
 }
 
 export async function GET(request: Request) {
@@ -71,10 +115,19 @@ export async function GET(request: Request) {
   const latitude = coordinate(input.get("latitude"), -90, 90);
   const longitude = coordinate(input.get("longitude"), -180, 180);
   const radiusMiles = coordinate(input.get("radius"), 1, 500) ?? 100;
+  const classification = selectedClassification(input.get("classification"));
 
   if (latitude !== undefined && longitude !== undefined) {
     try {
-      return NextResponse.json(await fetchNearbyEvents(eventQuery, latitude, longitude, radiusMiles));
+      const center = { latitude, longitude };
+      const events = await fetchNearbyEvents(eventQuery, latitude, longitude, radiusMiles);
+      return NextResponse.json(buildTicketmasterSearchResponse(events, {
+        page,
+        pageSize: RESULTS_PAGE_SIZE,
+        classification,
+        center,
+        preferredRadiusMiles: PREFERRED_RADIUS_MILES,
+      }));
     } catch (error) {
       return NextResponse.json(
         {
@@ -89,13 +142,13 @@ export async function GET(request: Request) {
   }
 
   const query = [eventQuery, city].filter(Boolean).join(" ");
-  const url = new URL("https://www.ticketmaster.com/search");
-  if (query) url.searchParams.set("q", query);
-  if (page) url.searchParams.set("page", String(page));
-
   try {
-    const html = await fetchPublicPage(url.toString());
-    return NextResponse.json(mapTicketmasterSearchPage(html, page));
+    const events = await fetchSearchEvents(query);
+    return NextResponse.json(buildTicketmasterSearchResponse(events, {
+      page,
+      pageSize: RESULTS_PAGE_SIZE,
+      classification,
+    }));
   } catch (error) {
     return NextResponse.json(
       {

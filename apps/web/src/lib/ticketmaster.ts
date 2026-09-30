@@ -219,6 +219,82 @@ export function eventsWithinRadius(
   });
 }
 
+function eventStartTime(event: TrackedEvent) {
+  if (!event.startsAt) return undefined;
+  const startsAt = Date.parse(event.startsAt);
+  return Number.isFinite(startsAt) ? startsAt : undefined;
+}
+
+function eventDistance(
+  event: TrackedEvent,
+  center?: { latitude: number; longitude: number },
+) {
+  const { latitude, longitude } = event.venue;
+  if (!center || latitude === undefined || longitude === undefined) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return distanceInMiles(center, { latitude, longitude });
+}
+
+/** Put events in the preferred radius first, then order by date and distance. */
+export function sortEventsByPreferredRadiusThenDate(
+  events: TrackedEvent[],
+  center?: { latitude: number; longitude: number },
+  preferredRadiusMiles = 100,
+  now = Date.now(),
+) {
+  return [...events].sort((first, second) => {
+    const firstDistance = eventDistance(first, center);
+    const secondDistance = eventDistance(second, center);
+    const firstRadiusGroup = firstDistance <= preferredRadiusMiles ? 0 : 1;
+    const secondRadiusGroup = secondDistance <= preferredRadiusMiles ? 0 : 1;
+    if (firstRadiusGroup !== secondRadiusGroup) return firstRadiusGroup - secondRadiusGroup;
+
+    const firstStart = eventStartTime(first);
+    const secondStart = eventStartTime(second);
+    const firstDateGroup = firstStart === undefined ? 2 : firstStart >= now ? 0 : 1;
+    const secondDateGroup = secondStart === undefined ? 2 : secondStart >= now ? 0 : 1;
+    if (firstDateGroup !== secondDateGroup) return firstDateGroup - secondDateGroup;
+    if (firstStart !== undefined && secondStart !== undefined && firstStart !== secondStart) {
+      // Upcoming events are chronological; stale events are newest first.
+      return firstDateGroup === 0 ? firstStart - secondStart : secondStart - firstStart;
+    }
+
+    if (firstDistance !== secondDistance) return firstDistance - secondDistance;
+
+    return first.name.localeCompare(second.name) || first.id.localeCompare(second.id);
+  });
+}
+
+export function buildTicketmasterSearchResponse(
+  events: TrackedEvent[],
+  options: {
+    page: number;
+    pageSize: number;
+    classification?: EventClassification;
+    center?: { latitude: number; longitude: number };
+    preferredRadiusMiles?: number;
+    now?: number;
+  },
+): TicketmasterSearchResponse {
+  const filtered = options.classification
+    ? events.filter((event) => event.classification === options.classification)
+    : events;
+  const sorted = sortEventsByPreferredRadiusThenDate(
+    filtered,
+    options.center,
+    options.preferredRadiusMiles,
+    options.now,
+  );
+  const start = options.page * options.pageSize;
+  return {
+    items: sorted.slice(start, start + options.pageSize),
+    total: sorted.length,
+    page: options.page,
+    pageCount: Math.ceil(sorted.length / options.pageSize),
+  };
+}
+
 export function asTicketmasterDetail(event: TrackedEvent): TrackedEventDetail {
   return {
     ...event,
