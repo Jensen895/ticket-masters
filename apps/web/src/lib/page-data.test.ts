@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { bestMatchingEvent } from "./crawlers/page-data";
+import { bestMatchingEvent, extractJsonScripts, ticketmasterGenres } from "./crawlers/page-data";
 
 test("bestMatchingEvent rejects a same-name event on a different date", () => {
   const match = bestMatchingEvent([{
@@ -41,4 +41,23 @@ test("bestMatchingEvent keeps a matching event within the timezone tolerance", (
     },
     matching,
   ], expected), matching);
+});
+
+test("ticketmasterGenres prefers the artist's specific subgenre from digitalData", () => {
+  const html = `<script id="digitalData">window.digitalData=${JSON.stringify({
+    page: {
+      attributes: {
+        discovery: {
+          attraction: [{
+            classifications: {
+              genre: { id: "genre-pop", name: "Pop" },
+              subGenre: { id: "subgenre-kpop", name: "K-Pop" },
+            },
+          }],
+        },
+      },
+    },
+  })}</script>`;
+
+  assert.deepEqual(ticketmasterGenres(extractJsonScripts(html)), ["K-Pop", "Pop"]);
 });

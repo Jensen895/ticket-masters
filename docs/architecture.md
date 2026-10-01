@@ -9,6 +9,11 @@ Browser
   │                         │
   │                         └─ Ticketmaster public search HTML
   │
+  ├─ suggestions ──> Next.js /api/ticketmaster/recommendations
+  │                         │
+  │                         ├─ Ticketmaster genres + nearby catalog
+  │                         └─ lowest public marketplace price
+  │
   └─ open event ───> refresh Ticketmaster base record
                      then POST /api/prices
                               │
@@ -23,6 +28,8 @@ Browser
 ```
 
 The browser stores the user’s selected events in local storage. It uses the browser geolocation API (with permission) to detect coordinates, then a same-origin route resolves the city label. Location-aware Ticketmaster searches retrieve location-ranked public results and enforce a 100-mile radius from venue coordinates. The Next.js server owns all remote requests, so third-party sites are never called directly from the browser and no secret or seller API key is required.
+
+The recommendation route resolves public Ticketmaster artist classifications, prefers specific subgenres such as K-Pop over their parent genre, weights those subgenres by how often they appear in the saved collection, and searches upcoming events within 100 miles of the current location (or the saved-event center). It removes saved IDs and non-event add-ons, returns at most five exact subgenre matches, and checks all configured marketplaces for the lowest publicly disclosed price. When subgenre metadata is unavailable, it falls back through the broader genre and then the saved event classifications.
 
 ## Collection boundary
 

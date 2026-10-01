@@ -6,11 +6,12 @@ A private, read-only event price comparison board. It crawls public marketplace 
 
 1. Searches Ticketmaster’s public web results for the event name, date, time, venue, image, and official static seat map. With browser location enabled, results are limited to matching events within 500 miles, with events inside 100 miles shown first and then ordered by date.
 2. Saves only events explicitly added by the user in browser local storage.
-3. On the first event-page load, refreshes the base Ticketmaster record and then concurrently crawls Ticketmaster, SeatGeek, StubHub, TickPick, Gametime, and Vivid Seats.
-4. Reads Ticketmaster’s public section outlines and exact seat coordinates, then aligns normalized marketplace listings to the same map.
-5. Lets the user click a section to zoom into its rows and seats, or pan/zoom the full map.
-6. Deduplicates the same section/row/seat across marketplaces, colors each seat by its lowest-priced marketplace, and lets users compare every source that disclosed that exact seat. Prices are display-only.
-7. Offers per-event price-drop alerts: watch the event's lowest price or any set of sections, and get notified in-app (optionally via browser notification) when prices fall.
+3. Suggests up to five upcoming nearby events using the most specific Ticketmaster subgenres (for example, K-Pop instead of Pop) that occur most often in the user’s saved collection. Suggestions disappear as soon as they are added and include the lowest public marketplace price found.
+4. On the first event-page load, refreshes the base Ticketmaster record and then concurrently crawls Ticketmaster, SeatGeek, StubHub, TickPick, Gametime, and Vivid Seats.
+5. Reads Ticketmaster’s public section outlines and exact seat coordinates, then aligns normalized marketplace listings to the same map.
+6. Lets the user click a section to zoom into its rows and seats, or pan/zoom the full map.
+7. Deduplicates the same section/row/seat across marketplaces, colors each seat by its lowest-priced marketplace, and lets users compare every source that disclosed that exact seat. Prices are display-only.
+8. Offers per-event price-drop alerts: watch the event's lowest price or any set of sections, and get notified in-app (optionally via browser notification) when prices fall.
 
 The collector uses only publicly returned HTML, JSON-LD, embedded page state, and Ticketmaster’s published map geometry. It does not sign in, solve challenges, spoof sessions, or bypass access controls. A marketplace that blocks plain server requests or does not expose listing data is shown as unavailable (`—`). Site markup changes can require parser maintenance.
 

@@ -28,6 +28,7 @@ interface TicketmasterWebsiteEvent {
   soldOut?: boolean;
   artists?: Array<{
     name?: string;
+    url?: string;
     imageUrls?: Record<string, string | undefined>;
   }>;
   majorCategory?: { id?: string };
@@ -137,6 +138,10 @@ function mapWebsiteEvent(event: TicketmasterWebsiteEvent): TrackedEvent | undefi
     ticketmasterUrl: secureUrl(event.url) ?? "https://www.ticketmaster.com/",
     status: statusLabel(event),
     attractions: (event.artists ?? []).flatMap((artist) => artist.name ? [artist.name] : []),
+    attractionUrls: (event.artists ?? []).flatMap((artist) => {
+      const url = secureUrl(artist.url);
+      return url ? [url] : [];
+    }),
   };
 }
 

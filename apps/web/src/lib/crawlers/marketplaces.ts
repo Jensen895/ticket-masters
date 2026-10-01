@@ -517,3 +517,15 @@ export function crawlPriceComparison(event: TrackedEvent): Promise<CrawledPriceS
   snapshotCache.set(cacheKey, { expiresAt: now + Number(process.env.PRICE_CACHE_TTL_MS ?? 60_000), value });
   return value;
 }
+
+export async function crawlLowestPrice(event: TrackedEvent) {
+  const sourceResults = await Promise.all(sources.map((source) => crawlSource(source, event)));
+  const offers = sourceResults.flatMap((source) => source.offers);
+  const lowest = offers.reduce<TicketOffer | undefined>((best, offer) => (
+    !best || offer.priceCents < best.priceCents ? offer : best
+  ), undefined);
+  return lowest ? {
+    priceCents: lowest.priceCents,
+    marketplace: lowest.marketplaceLabel,
+  } : undefined;
+}

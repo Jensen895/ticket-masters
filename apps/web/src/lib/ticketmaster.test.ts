@@ -81,17 +81,19 @@ test("eventsWithinRadius excludes distant events and venues without coordinates"
   ], center, 100).map(({ id }) => id), ["near"]);
 });
 
-test("mapTicketmasterSearchData retains venue coordinates", () => {
+test("mapTicketmasterSearchData retains venue coordinates and artist pages", () => {
   const result = mapTicketmasterSearchData({
     total: 1,
     events: [{
       id: "event-1",
       title: "Test event",
       url: "https://www.ticketmaster.com/event",
+      artists: [{ name: "Test artist", url: "https://www.ticketmaster.com/test-artist/artist/123" }],
       venue: { name: "Venue", city: "Los Angeles", latitude: 34.043, longitude: -118.267 },
     }],
   }, 0, 50);
   assert.equal(result.items[0]?.venue.latitude, 34.043);
   assert.equal(result.items[0]?.venue.longitude, -118.267);
+  assert.deepEqual(result.items[0]?.attractionUrls, ["https://www.ticketmaster.com/test-artist/artist/123"]);
   assert.equal(result.pageCount, 1);
 });

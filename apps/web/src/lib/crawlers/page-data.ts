@@ -36,9 +36,9 @@ export function extractJsonScripts(html: string): unknown[] {
     }
   }
 
-  const assignedMarker = "window.__data=";
-  const assignedAt = html.indexOf(assignedMarker);
-  if (assignedAt >= 0) {
+  for (const assignedMarker of ["window.__data=", "window.digitalData="]) {
+    const assignedAt = html.indexOf(assignedMarker);
+    if (assignedAt < 0) continue;
     const start = html.indexOf("{", assignedAt + assignedMarker.length);
     let end = -1;
     let depth = 0;
@@ -77,6 +77,32 @@ export function extractJsonScripts(html: string): unknown[] {
     }
   }
   return values;
+}
+
+export function ticketmasterGenres(payloads: unknown[]): string[] {
+  const genres = new Set<string>();
+  for (const payload of payloads) {
+    walkJson(payload, (record) => {
+      const classifications = record.classifications && typeof record.classifications === "object"
+        ? record.classifications as Record<string, unknown>
+        : undefined;
+      const genre = classifications?.genre && typeof classifications.genre === "object"
+        ? classifications.genre as Record<string, unknown>
+        : undefined;
+      const subGenre = classifications?.subGenre && typeof classifications.subGenre === "object"
+        ? classifications.subGenre as Record<string, unknown>
+        : undefined;
+      const genreName = text(genre?.name);
+      const subGenreName = text(subGenre?.name);
+      // Ticketmaster commonly classifies K-Pop as genre=Pop,
+      // subGenre=K-Pop. Keep the most specific useful label first.
+      if (subGenreName && !/^(?:other|miscellaneous|undefined)$/i.test(subGenreName)) {
+        genres.add(subGenreName);
+      }
+      if (genreName) genres.add(genreName);
+    });
+  }
+  return [...genres];
 }
 
 function schemaType(value: unknown) {

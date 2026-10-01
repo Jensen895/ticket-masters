@@ -32,6 +32,20 @@ export interface TrackedEvent {
   ticketmasterUrl: string;
   status?: string;
   attractions?: string[];
+  /** Public Ticketmaster artist pages used to resolve recommendation genres. */
+  attractionUrls?: string[];
+}
+
+export interface EventRecommendation {
+  event: TrackedEvent;
+  reason: string;
+  lowestPriceCents?: number;
+  lowestPriceMarketplace?: string;
+}
+
+export interface TicketmasterRecommendationsResponse {
+  items: EventRecommendation[];
+  preferredGenres: string[];
 }
 
 export interface TrackedEventDetail extends TrackedEvent {

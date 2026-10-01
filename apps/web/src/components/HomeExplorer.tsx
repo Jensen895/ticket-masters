@@ -1,7 +1,9 @@
 "use client";
 
 import type {
+  EventRecommendation,
   EventClassification,
+  TicketmasterRecommendationsResponse,
   TicketmasterSearchResponse,
   TrackedEvent,
 } from "@ticket-hub/contracts";
@@ -19,6 +21,7 @@ import {
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EventCard } from "./EventCard";
 import { SearchResultCard } from "./SearchResultCard";
+import { SuggestionCard } from "./SuggestionCard";
 import {
   readTrackedEvents,
   removeExpiredTrackedEvents,
@@ -64,6 +67,10 @@ export function HomeExplorer() {
   const [error, setError] = useState<string>();
   const [searchClassification, setSearchClassification] = useState<(typeof classifications)[number]>("All");
   const [classification, setClassification] = useState<(typeof classifications)[number]>("All");
+  const [suggestions, setSuggestions] = useState<EventRecommendation[]>([]);
+  const [preferredGenres, setPreferredGenres] = useState<string[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [suggestionsError, setSuggestionsError] = useState<string>();
   const submittedSearch = useRef<SearchCriteria | undefined>(undefined);
 
   useEffect(() => {
@@ -153,11 +160,60 @@ export function HomeExplorer() {
   }, [hydrated, trackedEvents]);
 
   const trackedIds = useMemo(() => new Set(trackedEvents.map((event) => event.id)), [trackedEvents]);
+  const visibleSuggestions = useMemo(
+    () => suggestions.filter(({ event }) => !trackedIds.has(event.id)).slice(0, 5),
+    [suggestions, trackedIds],
+  );
   const groupedEvents = useMemo(() => groupOrder.flatMap((group) => {
     if (classification !== "All" && classification !== group) return [];
     const events = trackedEvents.filter((event) => event.classification === group);
     return events.length ? [{ classification: group, events }] : [];
   }), [classification, trackedEvents]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!trackedEvents.length) {
+      setSuggestions([]);
+      setPreferredGenres([]);
+      setSuggestionsError(undefined);
+      setSuggestionsLoading(false);
+      return;
+    }
+    // Let the initial geolocation attempt settle so it does not start a
+    // second recommendation crawl moments after the first one.
+    if (locationStatus === "locating") return;
+
+    const controller = new AbortController();
+    setSuggestionsLoading(true);
+    setSuggestionsError(undefined);
+    fetch("/api/ticketmaster/recommendations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ events: trackedEvents, coordinates }),
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const payload = await response.json() as TicketmasterRecommendationsResponse | { message?: string };
+        if (!response.ok) throw new Error("message" in payload ? payload.message : undefined);
+        return payload as TicketmasterRecommendationsResponse;
+      })
+      .then((payload) => {
+        setSuggestions(payload.items);
+        setPreferredGenres(payload.preferredGenres);
+      })
+      .catch((caught: unknown) => {
+        if (controller.signal.aborted) return;
+        setSuggestions([]);
+        setSuggestionsError(caught instanceof Error && caught.message
+          ? caught.message
+          : "Suggestions could not be loaded.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setSuggestionsLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [coordinates, hydrated, locationStatus, trackedEvents]);
 
   function persist(events: TrackedEvent[]) {
     setTrackedEvents(events);
@@ -426,14 +482,53 @@ export function HomeExplorer() {
           )}
         </section>
 
+        {hydrated && trackedEvents.length > 0 && (
+          <section className="suggestionsSection" id="suggestions" aria-live="polite">
+            <div className="pageShell">
+              <div className="sectionHeading">
+                <div>
+                  <p className="sectionKicker"><Sparkles size={14} /> Picked for you</p>
+                  <h2>Suggestions near you</h2>
+                  <p className="suggestionsIntro">
+                    {preferredGenres.length
+                      ? `Based on your ${preferredGenres.join(" and ")} events.`
+                      : "Based on the kinds of events in your collection."}
+                  </p>
+                </div>
+              </div>
+              {suggestionsError ? (
+                <div className="inlineError"><strong>We couldn’t refresh suggestions.</strong><span>{suggestionsError}</span></div>
+              ) : suggestionsLoading && visibleSuggestions.length === 0 ? (
+                <div className="suggestionsLoading"><LoaderCircle className="spinning" size={20} /> Finding upcoming matches and checking prices…</div>
+              ) : visibleSuggestions.length > 0 ? (
+                <div className="suggestionGrid">
+                  {visibleSuggestions.map((recommendation) => (
+                    <SuggestionCard
+                      key={recommendation.event.id}
+                      recommendation={recommendation}
+                      onAdd={() => addEvent(recommendation.event)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="emptyState compactEmpty">
+                  <Sparkles size={26} />
+                  <h3>No new matches right now</h3>
+                  <p>We’ll keep looking for upcoming events that fit your collection.</p>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+
         <section className="pageShell confidenceSection" id="how-it-works">
           <div className="confidenceIntro">
             <p className="sectionKicker">Focused by design</p>
-            <h2>Only the events<br />you add.</h2>
+            <h2>Only the events<br />you choose.</h2>
           </div>
           <div className="confidenceGrid">
             <article><span><Search /></span><h3>Crawl the catalog</h3><p>Look across Ticketmaster’s public pages by event, artist, team, venue, or city.</p></article>
-            <article><span><CheckCircle2 /></span><h3>Add what matters</h3><p>Your main page remains empty until you choose an event to track.</p></article>
+            <article><span><CheckCircle2 /></span><h3>Add what matters</h3><p>Suggestions stay separate from your collection until you choose one.</p></article>
             <article><span><MapPin /></span><h3>Compare on the map</h3><p>Open an event to see public marketplace prices aligned to Ticketmaster sections.</p></article>
           </div>
         </section>
